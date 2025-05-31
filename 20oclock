@@ -456,34 +456,6 @@
                         password: '',      // VNC 패스워드
                         path: '/websockify' // WebSocket 경로
                     },
-                    'windows-10': {
-                        name: 'Windows 10 Pro',
-                        memory: '4GB',
-                        cpu: '2 cores',
-                        disk: '40GB',
-                        port: 5902
-                    },
-                    'kali-linux': {
-                        name: 'Kali Linux (보안실습)',
-                        memory: '3GB',
-                        cpu: '2 cores',
-                        disk: '30GB',
-                        port: 5903
-                    },
-                    'centos-server': {
-                        name: 'CentOS Server 8',
-                        memory: '2GB',
-                        cpu: '1 core',
-                        disk: '20GB',
-                        port: 5904
-                    },
-                    'dev-environment': {
-                        name: '개발환경 (VS Code)',
-                        memory: '6GB',
-                        cpu: '4 cores',
-                        disk: '50GB',
-                        port: 5905
-                    }
                 };
 
                 this.initEventListeners();
@@ -720,7 +692,6 @@
                 noConnection.style.display = 'none';
                 toolbar.style.display = 'flex';
                 canvas.style.display = 'block';
-            }
                 
                 // 실제 VNC 화면 시뮬레이션
                 container.innerHTML = `
@@ -1133,11 +1104,6 @@
 
 
         // 툴바 기능들
-        function sendCtrlAltDel() {
-            if (platform.rfb && platform.isConnected) {
-                platform.rfb.sendCtrlAltDel();
-            }
-        }
 
         function toggleFullscreen() {
             const container = document.getElementById('vnc-container');
