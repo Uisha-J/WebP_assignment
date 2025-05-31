@@ -484,7 +484,15 @@
                     🔄 화면 재설정
                 </button>
             </div>
-            // simple-keyboard 초기화 코드
+
+            <!-- 툴바 아래에 입력창과 키보드 컨테이너 추가 -->
+            <input id="virtual-input" class="input" readonly style="width:300px;font-size:1.2rem; margin-top:10px; display:none;" />
+            <div id="keyboard" style="display:none;"></div>
+                    </div>
+    </div>
+
+    <script>
+                // simple-keyboard 초기화 코드
             const Keyboard = window.SimpleKeyboard.default;
             
             const keyboard = new Keyboard({
@@ -551,13 +559,6 @@
               }
             }
 
-            <!-- 툴바 아래에 입력창과 키보드 컨테이너 추가 -->
-            <input id="virtual-input" class="input" readonly style="width:300px;font-size:1.2rem; margin-top:10px; display:none;" />
-            <div id="keyboard" style="display:none;"></div>
-                    </div>
-    </div>
-
-    <script>
                 // 환경별 설정 분리 - 이 위치가 최적!
         const CONFIG = {
             development: {
