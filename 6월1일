@@ -1111,12 +1111,7 @@
 
             hideVNCViewer() {
                 const container = document.getElementById('vnc-container');
-                const toolbar = document.getElementById('toolbar');
-                
-                // 툴바 숨김 (명시적으로 제어)
-                toolbar.style.display = 'none';
-                toolbar.classList.add('hidden');
-                
+
                 // 컨테이너 내용 초기화 및 no-connection 메시지 표시
                 container.innerHTML = `
                     <div class="no-connection" id="no-connection">
