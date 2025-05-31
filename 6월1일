@@ -544,9 +544,6 @@
                 <button class="toolbar-btn" onclick="showVirtualKeyboard()">
                     ⌨️ 가상키보드
                 </button>
-                <button class="toolbar-btn" onclick="resetView()">
-                    🔄 화면 재설정
-                </button>
             </div>
 
             <div class="vnc-container" id="vnc-container">
@@ -1235,13 +1232,6 @@
             } catch (error) {
                 console.error('스크린샷 실패:', error);
                 alert('스크린샷 생성에 실패했습니다.');
-            }
-        }
-
-        function resetView() {
-            if (window.platform && window.platform.rfb) {
-                // VNC 뷰 리셋 로직
-                console.log('화면 재설정');
             }
         }
 
