@@ -1,0 +1,1144 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <!-- simple-keyboard CSS -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/simple-keyboard@latest/build/css/index.css">
+    <!-- simple-keyboard JS -->
+    <script src="https://cdn.jsdelivr.net/npm/simple-keyboard@latest/build/index.js"></script>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/novnc/1.3.0/core/util.js"></script>
+    <script src="https://unpkg.com/@novnc/novnc/lib/rfb.js"></script>
+    
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>웹 기반 샌드박스 플랫폼</title>
+    <script>
+        // 환경 변수 설정 개선
+        window.ENV = {
+            NODE_ENV: 'development', // 실제 환경에 맞게 설정
+            API_BASE_URL: 'http://localhost:3000' // 실제 API URL로 변경
+        };
+    </script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #e0f7fa 0%, #b2ebf2 100%);
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .header {
+            background: rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(10px);
+            padding: 1rem 2rem;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.2);
+        }
+
+        .header h1 {
+            color: black;
+            font-size: 1.5rem;
+            font-weight: 600;
+        }
+
+        .main-container {
+            display: flex;
+            flex: 1;
+            gap: 1rem;
+            padding: 1rem;
+        }
+
+        .sidebar {
+            width: 300px;
+            background: rgba(255, 255, 255, 0.95);
+            border-radius: 15px;
+            padding: 1.5rem;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+            backdrop-filter: blur(10px);
+        }
+
+        .sidebar h2 {
+            color: #333;
+            margin-bottom: 1rem;
+            font-size: 1.2rem;
+        }
+
+        .vm-list {
+            display: flex;
+            flex-direction: column;
+            gap: 0.5rem;
+            margin-bottom: 2rem;
+        }
+
+        .vm-item {
+            padding: 0.8rem;
+            background: linear-gradient(135deg, #667eea, #764ba2);
+            color: white;
+            border: none;
+            border-radius: 10px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            text-align: left;
+            font-size: 0.9rem;
+        }
+
+        .vm-item:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.2);
+        }
+
+        .vm-item.active {
+            background: linear-gradient(135deg, #4CAF50, #45a049);
+        }
+
+        .controls {
+            display: flex;
+            flex-direction: column;
+            gap: 0.5rem;
+        }
+
+        .control-btn {
+            padding: 0.8rem;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            font-weight: 500;
+            transition: all 0.3s ease;
+        }
+
+        .start-btn {
+            background: #4CAF50;
+            color: white;
+        }
+
+        .stop-btn {
+            background: #f44336;
+            color: white;
+        }
+
+        .restart-btn {
+            background: #ff9800;
+            color: white;
+        }
+
+        .control-btn:hover {
+            opacity: 0.8;
+            transform: translateY(-1px);
+        }
+
+        .control-btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .vm-viewer {
+            flex: 1;
+            background: rgba(255, 255, 255, 0.95);
+            border-radius: 15px;
+            padding: 1.5rem;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+            backdrop-filter: blur(10px);
+            display: flex;
+            flex-direction: column;
+        }
+
+        .viewer-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 1rem;
+            padding-bottom: 1rem;
+            border-bottom: 1px solid #eee;
+        }
+
+        .viewer-title {
+            color: #333;
+            font-size: 1.1rem;
+            font-weight: 600;
+        }
+
+        .connection-status {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            font-size: 0.9rem;
+        }
+
+        .status-indicator {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            background: #ccc;
+            transition: all 0.3s ease;
+        }
+
+        .status-indicator.connected {
+            background: #4CAF50;
+            box-shadow: 0 0 10px rgba(76, 175, 80, 0.5);
+        }
+
+        .status-indicator.connecting {
+            background: #ff9800;
+            animation: pulse 1.5s infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+
+        .toolbar {
+            display: flex;
+            gap: 0.5rem;
+            margin-bottom: 1rem;
+            flex-wrap: wrap;
+        }
+
+        .toolbar-btn {
+            padding: 0.5rem 1rem;
+            background: #667eea;
+            color: white;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 0.8rem;
+            transition: all 0.3s ease;
+            display: inline-flex;
+            align-items: center;
+            gap: 0.3rem;
+        }
+
+        .toolbar-btn:hover {
+            background: #5a6fd8;
+            transform: translateY(-1px);
+        }
+
+        .toolbar-btn:active {
+            transform: translateY(0);
+        }
+
+        .vnc-container {
+            flex: 1;
+            background: #000;
+            border-radius: 10px;
+            position: relative;
+            min-height: 400px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .vnc-screen {
+            width: 100%;
+            height: 100%;
+            border: none;
+            border-radius: 10px;
+        }
+
+        .no-connection {
+            color: #666;
+            text-align: center;
+            font-size: 1.1rem;
+        }
+
+        .loading {
+            color: #667eea;
+            font-size: 1.1rem;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .spinner {
+            width: 20px;
+            height: 20px;
+            border: 2px solid #667eea;
+            border-top: 2px solid transparent;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .vm-info {
+            background: #f8f9fa;
+            padding: 1rem;
+            border-radius: 8px;
+            margin-bottom: 1rem;
+            font-size: 0.9rem;
+        }
+
+        .vm-info-item {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 0.5rem;
+        }
+
+        .vm-info-item:last-child {
+            margin-bottom: 0;
+        }
+
+        .performance-stats {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 1rem;
+            margin-top: 1rem;
+        }
+
+        .stat-card {
+            background: white;
+            padding: 1rem;
+            border-radius: 8px;
+            text-align: center;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+        }
+
+        .stat-value {
+            font-size: 1.5rem;
+            font-weight: bold;
+            color: #667eea;
+        }
+
+        .stat-label {
+            font-size: 0.8rem;
+            color: #666;
+            margin-top: 0.5rem;
+        }
+
+        /* 가상 키보드 모달 개선 */
+        .virtual-keyboard-modal {
+            display: none;
+            position: fixed;
+            z-index: 1000;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0, 0, 0, 0.5);
+            align-items: center;
+            justify-content: center;
+        }
+
+        .virtual-keyboard-content {
+            background-color: #fefefe;
+            margin: auto;
+            padding: 20px;
+            border: none;
+            border-radius: 10px;
+            width: 90%;
+            max-width: 800px;
+            max-height: 80vh;
+            overflow-y: auto;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.3);
+        }
+
+        .keyboard-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 15px;
+            padding-bottom: 10px;
+            border-bottom: 1px solid #eee;
+        }
+
+        .keyboard-title {
+            font-size: 1.2rem;
+            font-weight: 600;
+            color: #333;
+        }
+
+        .close-btn {
+            color: #aaa;
+            font-size: 28px;
+            font-weight: bold;
+            cursor: pointer;
+            background: none;
+            border: none;
+            padding: 0;
+            line-height: 1;
+        }
+
+        .close-btn:hover {
+            color: #000;
+        }
+
+        /* simple-keyboard 스타일 개선 */
+        .simple-keyboard {
+            max-width: 100%;
+            background: #f8f9fa;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+
+        .hg-button {
+            background: white;
+            border: 1px solid #ddd;
+            color: #333;
+            transition: all 0.2s ease;
+        }
+
+        .hg-button:hover {
+            background: #e9ecef;
+            border-color: #adb5bd;
+        }
+
+        .hg-button:active {
+            background: #dee2e6;
+            transform: scale(0.95);
+        }
+
+        .virtual-input-container {
+            margin-bottom: 15px;
+            padding: 10px;
+            background: #f8f9fa;
+            border-radius: 8px;
+        }
+
+        .virtual-input {
+            width: 100%;
+            padding: 10px;
+            font-size: 16px;
+            border: 1px solid #ddd;
+            border-radius: 6px;
+            background: white;
+            font-family: 'Consolas', 'Monaco', monospace;
+        }
+
+        .keyboard-controls {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 15px;
+            flex-wrap: wrap;
+        }
+
+        .keyboard-control-btn {
+            padding: 8px 16px;
+            background: #667eea;
+            color: white;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 14px;
+            transition: background 0.2s ease;
+        }
+
+        .keyboard-control-btn:hover {
+            background: #5a6fd8;
+        }
+
+        .keyboard-control-btn.active {
+            background: #4CAF50;
+        }
+
+        @media (max-width: 768px) {
+            .main-container {
+                flex-direction: column;
+            }
+
+            .sidebar {
+                width: 100%;
+            }
+
+            .toolbar {
+                flex-wrap: wrap;
+            }
+
+            .toolbar-btn {
+                font-size: 0.7rem;
+                padding: 0.4rem 0.8rem;
+            }
+
+            .virtual-keyboard-content {
+                width: 95%;
+                padding: 15px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>🖥️ 웹 기반 샌드박스 플랫폼</h1>
+    </div>
+    
+    <div class="main-container">
+        <div class="sidebar">
+            <h2>가상환경 목록</h2>
+            <div class="vm-list">
+                <button class="vm-item" data-vm="ubuntu-desktop">
+                    🐧 Ubuntu Desktop 20.04
+                </button>
+            </div>
+
+            <div class="vm-info" id="vm-info" style="display: none;">
+                <div class="vm-info-item">
+                    <span>상태:</span>
+                    <span id="vm-status">중지됨</span>
+                </div>
+                <div class="vm-info-item">
+                    <span>메모리:</span>
+                    <span id="vm-memory">2GB</span>
+                </div>
+                <div class="vm-info-item">
+                    <span>CPU:</span>
+                    <span id="vm-cpu">2 cores</span>
+                </div>
+                <div class="vm-info-item">
+                    <span>디스크:</span>
+                    <span id="vm-disk">20GB</span>
+                </div>
+            </div>
+
+            <div class="controls">
+                <button class="control-btn start-btn" id="start-btn">🚀 시작</button>
+                <button class="control-btn stop-btn" id="stop-btn">⏹️ 중지</button>
+                <button class="control-btn restart-btn" id="restart-btn">🔄 재시작</button>
+            </div>
+
+            <div class="performance-stats">
+                <div class="stat-card">
+                    <div class="stat-value" id="cpu-usage">0%</div>
+                    <div class="stat-label">CPU 사용률</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value" id="memory-usage">0%</div>
+                    <div class="stat-label">메모리 사용률</div>
+                </div>
+            </div>
+        </div>
+
+        <div class="vm-viewer">
+            <div class="viewer-header">
+                <div class="viewer-title" id="viewer-title">가상환경을 선택해주세요</div>
+                <div class="connection-status">
+                    <div class="status-indicator" id="status-indicator"></div>
+                    <span id="connection-text">연결 안됨</span>
+                </div>
+            </div>
+
+            <div class="toolbar" id="toolbar">
+                <button class="toolbar-btn" onclick="toggleFullscreen()">
+                    🔲 전체화면
+                </button>
+                <button class="toolbar-btn" onclick="takeScreenshot()">
+                    📷 스크린샷
+                </button>
+                <button class="toolbar-btn" onclick="showVirtualKeyboard()">
+                    ⌨️ 가상키보드
+                </button>
+                <button class="toolbar-btn" onclick="resetView()">
+                    🔄 화면 재설정
+                </button>
+            </div>
+
+            <div class="vnc-container" id="vnc-container">
+                <canvas id="vnc-canvas" style="display: none;"></canvas>
+                <div class="no-connection" id="no-connection">
+                    가상환경을 선택하고 시작 버튼을 눌러주세요
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 가상 키보드 모달 -->
+    <div class="virtual-keyboard-modal" id="virtual-keyboard-modal">
+        <div class="virtual-keyboard-content">
+            <div class="keyboard-header">
+                <h3 class="keyboard-title">가상 키보드</h3>
+                <button class="close-btn" onclick="hideVirtualKeyboard()">&times;</button>
+            </div>
+            
+            <div class="virtual-input-container">
+                <input id="virtual-input" class="virtual-input" placeholder="여기에 입력하세요..." readonly />
+            </div>
+            
+            <div class="keyboard-controls">
+                <button class="keyboard-control-btn" id="lang-toggle" onclick="toggleLanguage()">
+                    한/영
+                </button>
+                <button class="keyboard-control-btn" onclick="clearInput()">
+                    지우기
+                </button>
+                <button class="keyboard-control-btn" onclick="sendToVM()">
+                    VM으로 전송
+                </button>
+            </div>
+            
+            <div id="simple-keyboard-container"></div>
+        </div>
+    </div>
+
+    <script>
+        // 가상 키보드 변수들
+        let keyboard = null;
+        let isKorean = true;
+        let isShift = false;
+        let isVirtualKeyboardVisible = false;
+
+        // simple-keyboard 초기화 함수
+        function initVirtualKeyboard() {
+            if (keyboard) {
+                keyboard.destroy();
+            }
+
+            const Keyboard = window.SimpleKeyboard.default;
+            
+            keyboard = new Keyboard('#simple-keyboard-container', {
+                onChange: input => onVirtualKeyboardChange(input),
+                onKeyPress: button => onVirtualKeyboardKeyPress(button),
+                layout: {
+                    default: [
+                        "` 1 2 3 4 5 6 7 8 9 0 - = {bksp}",
+                        "{tab} ㅂ ㅈ ㄷ ㄱ ㅅ ㅛ ㅕ ㅑ ㅐ ㅔ [ ] \\",
+                        "{lock} ㅁ ㄴ ㅇ ㄹ ㅎ ㅗ ㅓ ㅏ ㅣ ; ' {enter}",
+                        "{shift} ㅋ ㅌ ㅊ ㅍ ㅠ ㅜ ㅡ , . / {shift}",
+                        "{space}"
+                    ],
+                    shift: [
+                        "~ ! @ # $ % ^ & * ( ) _ + {bksp}",
+                        "{tab} ㅃ ㅉ ㄸ ㄲ ㅆ ㅛ ㅕ ㅑ ㅒ ㅖ { } |",
+                        "{lock} ㅁ ㄴ ㅇ ㄹ ㅎ ㅗ ㅓ ㅏ ㅣ : \" {enter}",
+                        "{shift} ㅋ ㅌ ㅊ ㅍ ㅠ ㅜ ㅡ < > ? {shift}",
+                        "{space}"
+                    ],
+                    english: [
+                        "` 1 2 3 4 5 6 7 8 9 0 - = {bksp}",
+                        "{tab} q w e r t y u i o p [ ] \\",
+                        "{lock} a s d f g h j k l ; ' {enter}",
+                        "{shift} z x c v b n m , . / {shift}",
+                        "{space}"
+                    ],
+                    englishShift: [
+                        "~ ! @ # $ % ^ & * ( ) _ + {bksp}",
+                        "{tab} Q W E R T Y U I O P { } |",
+                        "{lock} A S D F G H J K L : \" {enter}",
+                        "{shift} Z X C V B N M < > ? {shift}",
+                        "{space}"
+                    ]
+                },
+                display: {
+                    "{bksp}": "⌫ Backspace",
+                    "{enter}": "⏎ Enter", 
+                    "{shift}": "⇧ Shift",
+                    "{space}": "Space",
+                    "{tab}": "Tab",
+                    "{lock}": "⇪ Caps"
+                },
+                buttonTheme: [
+                    {
+                        class: "hg-red",
+                        buttons: "{bksp}"
+                    },
+                    {
+                        class: "hg-blue", 
+                        buttons: "{enter} {shift} {space} {tab} {lock}"
+                    }
+                ]
+            });
+
+            updateKeyboardLayout();
+        }
+
+        function onVirtualKeyboardChange(input) {
+            document.getElementById("virtual-input").value = input;
+        }
+
+        function onVirtualKeyboardKeyPress(button) {
+            // 특수 키 처리
+            if (button === "{shift}") {
+                isShift = !isShift;
+                updateKeyboardLayout();
+                
+                // Shift 버튼 시각적 피드백
+                const shiftButton = document.querySelector('.hg-button[data-skbtn="{shift}"]');
+                if (shiftButton) {
+                    if (isShift) {
+                        shiftButton.classList.add('active');
+                    } else {
+                        shiftButton.classList.remove('active');
+                    }
+                }
+            }
+            
+            if (button === "{enter}") {
+                sendToVM();
+            }
+            
+            if (button === "{tab}") {
+                // 탭 키 처리
+                sendKeyToVM("Tab");
+            }
+            
+            if (button === "{lock}") {
+                // Caps Lock 처리
+                sendKeyToVM("CapsLock");
+            }
+        }
+
+        function updateKeyboardLayout() {
+            if (!keyboard) return;
+            
+            let layoutName;
+            if (isKorean) {
+                layoutName = isShift ? "shift" : "default";
+            } else {
+                layoutName = isShift ? "englishShift" : "english";
+            }
+            
+            keyboard.setOptions({
+                layoutName: layoutName
+            });
+            
+            // 언어 토글 버튼 업데이트
+            const langToggle = document.getElementById('lang-toggle');
+            if (langToggle) {
+                langToggle.textContent = isKorean ? "EN" : "한";
+                langToggle.classList.toggle('active', !isKorean);
+            }
+        }
+
+        function toggleLanguage() {
+            isKorean = !isKorean;
+            isShift = false; // 언어 변경 시 Shift 해제
+            updateKeyboardLayout();
+        }
+
+        function clearInput() {
+            document.getElementById("virtual-input").value = "";
+            if (keyboard) {
+                keyboard.clearInput();
+            }
+        }
+
+        function sendToVM() {
+            const input = document.getElementById("virtual-input").value;
+            if (!input) return;
+            
+            // 실제 VM으로 텍스트 전송 로직
+            if (window.platform && window.platform.rfb && window.platform.isConnected) {
+                try {
+                    // 텍스트를 한 글자씩 전송
+                    for (let char of input) {
+                        sendCharToVM(char);
+                    }
+                    
+                    // 입력 완료 후 클리어
+                    clearInput();
+                    
+                    console.log("VM으로 텍스트 전송 완료:", input);
+                } catch (error) {
+                    console.error("VM 텍스트 전송 실패:", error);
+                    alert("VM으로 텍스트 전송에 실패했습니다.");
+                }
+            } else {
+                alert("VM에 연결되지 않았습니다.");
+            }
+        }
+
+        function sendCharToVM(char) {
+            // noVNC를 통해 문자 전송
+            if (window.platform && window.platform.rfb) {
+                // 키 코드 매핑 및 전송
+                const keyCode = char.charCodeAt(0);
+                window.platform.rfb.sendKey(keyCode, true);  // key down
+                window.platform.rfb.sendKey(keyCode, false); // key up
+            }
+        }
+
+        function sendKeyToVM(keyName) {
+            // 특수 키 전송
+            if (window.platform && window.platform.rfb) {
+                const keyMap = {
+                    'Tab': 0xFF09,
+                    'Enter': 0xFF0D, 
+                    'Escape': 0xFF1B,
+                    'CapsLock': 0xFFE5,
+                    'Shift': 0xFFE1,
+                    'Control': 0xFFE3,
+                    'Alt': 0xFFE9
+                };
+                
+                const keyCode = keyMap[keyName];
+                if (keyCode) {
+                    window.platform.rfb.sendKey(keyCode, true);
+                    window.platform.rfb.sendKey(keyCode, false);
+                }
+            }
+        }
+
+        // 가상 키보드 표시/숨김
+        function showVirtualKeyboard() {
+            const modal = document.getElementById('virtual-keyboard-modal');
+            modal.style.display = 'flex';
+            isVirtualKeyboardVisible = true;
+            
+            // 키보드가 초기화되지 않았다면 초기화
+            if (!keyboard) {
+                // DOM이 렌더링된 후 초기화
+                setTimeout(() => {
+                    initVirtualKeyboard();
+                }, 100);
+            }
+        }
+
+        function hideVirtualKeyboard() {
+            const modal = document.getElementById('virtual-keyboard-modal');
+            modal.style.display = 'none';
+            isVirtualKeyboardVisible = false;
+            
+            clearInput();
+        }
+
+        // 모달 외부 클릭 시 닫기
+        document.getElementById('virtual-keyboard-modal').addEventListener('click', function(e) {
+            if (e.target === this) {
+                hideVirtualKeyboard();
+            }
+        });
+
+        // ESC 키로 모달 닫기
+        document.addEventListener('keydown', function(e) {
+            if (e.key === 'Escape' && isVirtualKeyboardVisible) {
+                hideVirtualKeyboard();
+            }
+        });
+
+        // 환경별 설정
+        const CONFIG = {
+            development: {
+                wsProtocol: 'ws:',
+                apiBaseUrl: 'http://localhost:3000',
+                vncHost: 'localhost'
+            },
+            production: {
+                wsProtocol: 'wss:',
+                apiBaseUrl: 'https://your-domain.com',
+                vncHost: 'your-vnc-server.com'
+            }
+        };
+
+        const currentConfig = CONFIG[window.ENV?.NODE_ENV || 'development'];
+
+        // 기본 플랫폼 클래스들은 원본 코드 유지
+        class SandboxPlatform {
+            constructor() {
+                this.currentVM = null;
+                this.vncWebSocket = null;
+                this.isConnected = false;
+                this.isConnecting = false;
+                this.performanceInterval = null;
+                this.config = currentConfig;
+                this.authToken = sessionStorage.getItem('authToken');
+                
+                this.vmConfigs = {
+                    'ubuntu-desktop': {
+                        name: 'Ubuntu Desktop 20.04',
+                        memory: '4GB',
+                        cpu: '2 cores',
+                        disk: '25GB',
+                        host: 'localhost',
+                        port: 6080,
+                        vncPort: 5901,
+                        password: '',
+                        path: '/websockify'
+                    },
+                };
+
+                this.initEventListeners();
+                this.updatePerformanceStats();
+            }
+
+            initEventListeners() {
+                // VM 선택 이벤트
+                document.querySelectorAll('.vm-item').forEach(item => {
+                    item.addEventListener('click', (e) => {
+                        this.selectVM(e.target.dataset.vm);
+                    });
+                });
+
+                // 컨트롤 버튼 이벤트
+                document.getElementById('start-btn').addEventListener('click', () => {
+                    this.startVM();
+                });
+
+                document.getElementById('stop-btn').addEventListener('click', () => {
+                    this.stopVM();
+                });
+
+                document.getElementById('restart-btn').addEventListener('click', () => {
+                    this.restartVM();
+                });
+
+                // 창 크기 변경 이벤트
+                window.addEventListener('resize', () => {
+                    this.resizeVNCViewer();
+                });
+            }
+
+            selectVM(vmId) {
+                // 이전 선택 해제
+                document.querySelectorAll('.vm-item').forEach(item => {
+                    item.classList.remove('active');
+                });
+
+                // 새로운 VM 선택
+                document.querySelector(`[data-vm="${vmId}"]`).classList.add('active');
+                this.currentVM = vmId;
+
+                // VM 정보 업데이트
+                this.updateVMInfo(vmId);
+                
+                // 뷰어 제목 업데이트
+                document.getElementById('viewer-title').textContent = this.vmConfigs[vmId].name;
+
+                // 연결이 있다면 끊기
+                if (this.isConnected) {
+                    this.disconnect();
+                }
+            }
+
+            updateVMInfo(vmId) {
+                const config = this.vmConfigs[vmId];
+                const vmInfo = document.getElementById('vm-info');
+                
+                document.getElementById('vm-memory').textContent = config.memory;
+                document.getElementById('vm-cpu').textContent = config.cpu;
+                document.getElementById('vm-disk').textContent = config.disk;
+                
+                vmInfo.style.display = 'block';
+            }
+
+            async startVM() {
+                if (!this.currentVM) {
+                    alert('먼저 가상환경을 선택해주세요.');
+                    return;
+                }
+
+                try {
+                    this.setConnectionStatus('connecting', '연결 중...');
+                    
+                    // 실제 VM 시작 시뮬레이션
+                    await this.simulateVMStart();
+                    
+                    // VNC 연결 시뮬레이션
+                    await this.simulateVNCConnection();
+                    
+                    this.setConnectionStatus('connected', '연결됨');
+                    this.updateVMStatus('실행 중');
+                    this.showVNCViewer();
+                    this.startPerformanceMonitoring();
+                    
+                } catch (error) {
+                    console.error('VM 시작 실패:', error);
+                    this.setConnectionStatus('disconnected', '연결 실패');
+                    alert('가상환경 시작에 실패했습니다: ' + error.message);
+                }
+            }
+
+            async simulateVMStart() {
+                return new Promise((resolve) => {
+                    setTimeout(() => {
+                        resolve();
+                    }, 3000);
+                });
+            }
+
+            async simulateVNCConnection() {
+                return new Promise((resolve) => {
+                    setTimeout(() => {
+                        this.isConnected = true;
+                        this.isConnecting = false;
+                        resolve();
+                    }, 2000);
+                });
+            }
+
+            showVNCViewer() {
+                const container = document.getElementById('vnc-container');
+                const noConnection = document.getElementById('no-connection');
+                const toolbar = document.getElementById('toolbar');
+                const canvas = document.getElementById('vnc-canvas');
+
+                noConnection.style.display = 'none';
+                toolbar.style.display = 'flex';
+                canvas.style.display = 'block';
+                
+                // 실제 VNC 화면 시뮬레이션
+                container.innerHTML = `
+                    <div style="width: 100%; height: 100%; background: linear-gradient(45deg, #1e3c72, #2a5298); 
+                                display: flex; align-items: center; justify-content: center; 
+                                border-radius: 10px; color: white; font-size: 1.2rem;">
+                        <div style="text-align: center;">
+                            <div style="font-size: 3rem; margin-bottom: 1rem;">🖥️</div>
+                            <div>${this.vmConfigs[this.currentVM].name}</div>
+                            <div style="font-size: 0.9rem; margin-top: 0.5rem; opacity: 0.8;">
+                                VNC 연결됨 - 실제 구현시 noVNC 캔버스가 여기에 표시됩니다
+                            </div>
+                        </div>
+                    </div>
+                `;
+            }
+
+            stopVM() {
+                if (!this.isConnected) {
+                    return;
+                }
+
+                this.disconnect();
+                this.setConnectionStatus('disconnected', '연결 안됨');
+                this.updateVMStatus('중지됨');
+                this.hideVNCViewer();
+                this.stopPerformanceMonitoring();
+            }
+
+            restartVM() {
+                if (this.isConnected) {
+                    this.stopVM();
+                    setTimeout(() => {
+                        this.startVM();
+                    }, 1000);
+                }
+            }
+
+            disconnect() {
+                if (this.rfb) {
+                    this.rfb.disconnect();
+                    this.rfb = null;
+                }
+                this.isConnected = false;
+                this.isConnecting = false;
+            }
+
+            hideVNCViewer() {
+                const container = document.getElementById('vnc-container');
+                const canvas = document.getElementById('vnc-canvas');
+                
+                canvas.style.display = 'none';
+                
+                // no-connection div가 없으면 생성
+                let noConnection = document.getElementById('no-connection');
+                if (!noConnection) {
+                    noConnection = document.createElement('div');
+                    noConnection.id = 'no-connection';
+                    noConnection.className = 'no-connection';
+                    container.appendChild(noConnection);
+                }
+                
+                noConnection.style.display = 'block';
+                noConnection.textContent = '가상환경을 선택하고 시작 버튼을 눌러주세요';
+            }
+
+            setConnectionStatus(status, text) {
+                const indicator = document.getElementById('status-indicator');
+                const connectionText = document.getElementById('connection-text');
+                
+                indicator.className = `status-indicator ${status}`;
+                connectionText.textContent = text;
+            }
+
+            updateVMStatus(status) {
+                document.getElementById('vm-status').textContent = status;
+            }
+
+            startPerformanceMonitoring() {
+                this.performanceInterval = setInterval(() => {
+                    this.updatePerformanceStats();
+                }, 2000);
+            }
+
+            stopPerformanceMonitoring() {
+                if (this.performanceInterval) {
+                    clearInterval(this.performanceInterval);
+                    this.performanceInterval = null;
+                }
+                
+                // 성능 통계 초기화
+                document.getElementById('cpu-usage').textContent = '0%';
+                document.getElementById('memory-usage').textContent = '0%';
+            }
+
+            updatePerformanceStats() {
+                if (this.isConnected) {
+                    // 실제로는 백엔드에서 성능 데이터를 가져옴
+                    const cpuUsage = Math.floor(Math.random() * 60) + 20;
+                    const memoryUsage = Math.floor(Math.random() * 40) + 30;
+                    
+                    document.getElementById('cpu-usage').textContent = `${cpuUsage}%`;
+                    document.getElementById('memory-usage').textContent = `${memoryUsage}%`;
+                }
+            }
+
+            resizeVNCViewer() {
+                if (this.rfb) {
+                    this.rfb.autoscale = true;
+                }
+            }
+        }
+
+        // 기타 툴바 함수들
+        function toggleFullscreen() {
+            const container = document.getElementById('vnc-container');
+            if (document.fullscreenElement) {
+                document.exitFullscreen();
+            } else {
+                container.requestFullscreen().catch(error => {
+                    console.error('전체화면 전환 실패:', error);
+                });
+            }
+        }
+
+        function takeScreenshot() {
+            if (!window.platform || !window.platform.isConnected) {
+                alert('VM에 연결되지 않았습니다.');
+                return;
+            }
+
+            try {
+                // 실제 구현에서는 VNC 캔버스에서 스크린샷 생성
+                console.log('스크린샷 촬영 시뮬레이션');
+                alert('스크린샷이 촬영되었습니다. (시뮬레이션)');
+            } catch (error) {
+                console.error('스크린샷 실패:', error);
+                alert('스크린샷 생성에 실패했습니다.');
+            }
+        }
+
+        function resetView() {
+            if (window.platform && window.platform.rfb) {
+                // VNC 뷰 리셋 로직
+                console.log('화면 재설정');
+            }
+        }
+
+        // 플랫폼 초기화
+        window.platform = new SandboxPlatform();
+
+        // 페이지 로드 완료 후 초기화
+        document.addEventListener('DOMContentLoaded', () => {
+            console.log('웹 기반 샌드박스 플랫폼이 초기화되었습니다.');
+            
+            // 가상 키보드 관련 이벤트 리스너
+            document.addEventListener('keydown', function(e) {
+                // Ctrl+K로 가상 키보드 토글
+                if (e.ctrlKey && e.key === 'k') {
+                    e.preventDefault();
+                    if (isVirtualKeyboardVisible) {
+                        hideVirtualKeyboard();
+                    } else {
+                        showVirtualKeyboard();
+                    }
+                }
+            });
+        });
+    </script>
+</body>
+</html>
