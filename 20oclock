@@ -338,18 +338,6 @@
                 <button class="vm-item" data-vm="ubuntu-desktop">
                     🐧 Ubuntu Desktop 20.04
                 </button>
-                <button class="vm-item" data-vm="windows-10">
-                    🪟 Windows 10 Pro
-                </button>
-                <button class="vm-item" data-vm="kali-linux">
-                    🔒 Kali Linux (보안실습)
-                </button>
-                <button class="vm-item" data-vm="centos-server">
-                    🖥️ CentOS Server 8
-                </button>
-                <button class="vm-item" data-vm="dev-environment">
-                    💻 개발환경 (VS Code)
-                </button>
             </div>
 
             <div class="vm-info" id="vm-info" style="display: none;">
