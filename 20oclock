@@ -476,6 +476,73 @@
                 <button class="toolbar-btn" onclick="takeScreenshot()">스크린샷</button>
                 <button class="toolbar-btn" onclick="showKeyboard()">가상키보드</button>
             </div>
+            // simple-keyboard 초기화 코드
+            const Keyboard = window.SimpleKeyboard.default;
+            
+            const keyboard = new Keyboard({
+              onChange: input => onChange(input),
+              onKeyPress: button => onKeyPress(button),
+              layout: {
+                default: [
+                  "1 2 3 4 5 6 7 8 9 0 {bksp}",
+                  "ㅂ ㅈ ㄷ ㄱ ㅅ ㅛ ㅕ ㅑ ㅐ ㅔ",
+                  "ㅁ ㄴ ㅇ ㄹ ㅎ ㅗ ㅓ ㅏ ㅣ",
+                  "ㅋ ㅌ ㅊ ㅍ ㅠ ㅜ ㅡ {shift}",
+                  "{lang} {space} {enter}"
+                ],
+                shift: [
+                  "! @ # $ % ^ & * ( ) {bksp}",
+                  "ㅃ ㅉ ㄸ ㄲ ㅆ ㅛ ㅕ ㅑ ㅒ ㅖ",
+                  "ㅁ ㄴ ㅇ ㄹ ㅎ ㅗ ㅓ ㅏ ㅣ",
+                  "ㅋ ㅌ ㅊ ㅍ ㅠ ㅜ ㅡ {shift}",
+                  "{lang} {space} {enter}"
+                ],
+                en: [
+                  "1 2 3 4 5 6 7 8 9 0 {bksp}",
+                  "q w e r t y u i o p",
+                  "a s d f g h j k l",
+                  "z x c v b n m {shift}",
+                  "{lang} {space} {enter}"
+                ],
+                enShift: [
+                  "! @ # $ % ^ & * ( ) {bksp}",
+                  "Q W E R T Y U I O P",
+                  "A S D F G H J K L",
+                  "Z X C V B N M {shift}",
+                  "{lang} {space} {enter}"
+                ]
+              },
+              display: {
+                "{bksp}": "⌫",
+                "{enter}": "⏎",
+                "{shift}": "⇧",
+                "{space}": "⎵",
+                "{lang}": "한/영"
+              }
+            });
+            
+            let isKorean = true;
+            let isShift = false;
+            
+            function onChange(input) {
+              document.getElementById("virtual-input").value = input;
+            }
+            
+            function onKeyPress(button) {
+              if (button === "{shift}") {
+                isShift = !isShift;
+                if (isKorean) {
+                  keyboard.setOptions({ layoutName: isShift ? "shift" : "default" });
+                } else {
+                  keyboard.setOptions({ layoutName: isShift ? "enShift" : "en" });
+                }
+              }
+              if (button === "{lang}") {
+                isKorean = !isKorean;
+                keyboard.setOptions({ layoutName: isKorean ? (isShift ? "shift" : "default") : (isShift ? "enShift" : "en") });
+              }
+            }
+
             <!-- 툴바 아래에 입력창과 키보드 컨테이너 추가 -->
             <input id="virtual-input" class="input" readonly style="width:300px;font-size:1.2rem; margin-top:10px; display:none;" />
             <div id="keyboard" style="display:none;"></div>
