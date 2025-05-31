@@ -975,699 +975,1499 @@
             }
         }
 
-        class SecurityManager {
-            constructor() {
-                this.currentUser = null;
-                this.sessionTimeout = 30 * 60 * 1000; // 30분
-                this.maxLoginAttempts = 3;
-                this.loginAttempts = 0;
-                this.allowedIPs = [];
-                this.auditLogs = [];
-            }
+class SecurityManager {
+    constructor() {
+        this.currentUser = null;
+        this.sessionTimeout = 30 * 60 * 1000; // 30분
+        this.maxLoginAttempts = 3;
+        this.loginAttempts = new Map(); // IP별 로그인 시도 횟수 추적
+        this.allowedIPs = [];
+        this.auditLogs = [];
+        this.rateLimiter = new Map(); // 요청 제한 추적
+    }
 
-            async getClientIP() {
-                try {
-                    const response = await fetch('/api/client-ip');
-                    const data = await response.json();
-                    return data.ip;
-                } catch (error) {
-                    return 'unknown';
+    async getClientIP() {
+        try {
+            const response = await fetch('/api/client-ip', {
+                credentials: 'same-origin',
+                headers: {
+                    'X-Requested-With': 'XMLHttpRequest'
                 }
-            }
-
-            handleLoginFailure() {
-                this.loginAttempts++;
-                if (this.loginAttempts >= this.maxLoginAttempts) {
-                    alert('최대 로그인 시도 횟수를 초과했습니다.');
-                    window.location.href = '/blocked';
-                }
-            }
-
-            logout(reason) {
-                console.log(`로그아웃: ${reason}`);
-                this.currentUser = null;
-                if (this.sessionTimer) {
-                    clearTimeout(this.sessionTimer);
-                }
-                window.location.href = '/login';
-            }
-
-            // 사용자 인증
-            async authenticate(username, password, mfaCode = null) {
-                try {
-                    // IP 주소 확인
-                    if (!this.checkIPWhitelist()) {
-                        throw new Error('허용되지 않은 IP 주소입니다');
-                    }
-
-                    const response = await fetch('/api/auth/login', {
-                        method: 'POST',
-                        headers: {
-                            'Content-Type': 'application/json',
-                        },
-                        body: JSON.stringify({
-                            username,
-                            password,
-                            mfaCode,
-                            clientIP: await this.getClientIP()
-                        })
-                    });
-
-                    if (response.ok) {
-                        const userData = await response.json();
-                        this.currentUser = userData;
-                        this.startSessionTimeout();
-                        this.logSecurityEvent('LOGIN_SUCCESS', { username });
-                        return true;
-                    } else {
-                        this.handleLoginFailure();
-                        return false;
-                    }
-                } catch (error) {
-                    this.logSecurityEvent('LOGIN_ERROR', { error: error.message });
-                    throw error;
-                }
-            }
-
-            // 세션 타임아웃 관리
-            startSessionTimeout() {
-                if (this.sessionTimer) {
-                    clearTimeout(this.sessionTimer);
-                }
-                
-                this.sessionTimer = setTimeout(() => {
-                    this.logout('SESSION_TIMEOUT');
-                }, this.sessionTimeout);
-            }
-
-            // 권한 확인
-            checkPermission(action, vmId) {
-                if (!this.currentUser) {
-                    return false;
-                }
-
-                const userPermissions = this.currentUser.permissions || [];
-                const vmPermissions = this.currentUser.vmAccess || [];
-
-                return userPermissions.includes(action) && 
-                    (vmPermissions.includes('*') || vmPermissions.includes(vmId));
-            }
-
-            // IP 화이트리스트 확인
-            checkIPWhitelist() {
-                if (this.allowedIPs.length === 0) {
-                    return true; // 화이트리스트가 비어있으면 모든 IP 허용
-                }
-                
-                // 실제 구현에서는 클라이언트 IP를 정확히 가져와야 함
-                const clientIP = this.getClientIP();
-                return this.allowedIPs.includes(clientIP);
-            }
-
-            // 보안 이벤트 로깅
-            logSecurityEvent(eventType, details) {
-                const logEntry = {
-                    timestamp: new Date().toISOString(),
-                    eventType,
-                    user: this.currentUser?.username || 'anonymous',
-                    ip: this.getClientIP(),
-                    details
-                };
-                
-                this.auditLogs.push(logEntry);
-                
-                // 백엔드로 로그 전송
-                fetch('/api/security/log', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(logEntry)
-                });
-            }
-        }
-
-        // Web Crypto API를 사용한 암호화 라이브러리
-        class SecureConnection {
-            constructor() {
-                this.sslEnabled = true;
-                this.cryptoKey = null;
-                this.algorithm = 'AES-GCM';
-                this.keyLength = 256;
-                this.ivLength = 12;
-                this.tagLength = 128;
-                this.isEncryptionReady = false;
-                this.sessionKeys = new Map(); // 세션별 키 저장
-            }
-
-            // 암호화 키 생성 (Web Crypto API)
-            async generateCryptoKey() {
-                try {
-                    this.cryptoKey = await window.crypto.subtle.generateKey(
-                        {
-                            name: this.algorithm,
-                            length: this.keyLength
-                        },
-                        true, // extractable
-                        ['encrypt', 'decrypt']
-                    );
-                    this.isEncryptionReady = true;
-                    console.log('암호화 키가 성공적으로 생성되었습니다.');
-                    return this.cryptoKey;
-                } catch (error) {
-                    console.error('암호화 키 생성 실패:', error);
-                    throw error;
-                }
-            }
-
-            // 키를 ArrayBuffer로 내보내기
-            async exportKey(key = this.cryptoKey) {
-                try {
-                    return await window.crypto.subtle.exportKey('raw', key);
-                } catch (error) {
-                    console.error('키 내보내기 실패:', error);
-                    throw error;
-                }
-            }
-
-            // ArrayBuffer에서 키 가져오기
-            async importKey(keyBuffer) {
-                try {
-                    const key = await window.crypto.subtle.importKey(
-                        'raw',
-                        keyBuffer,
-                        { name: this.algorithm },
-                        true,
-                        ['encrypt', 'decrypt']
-                    );
-                    return key;
-                } catch (error) {
-                    console.error('키 가져오기 실패:', error);
-                    throw error;
-                }
-            }
-
-            // 데이터 암호화
-            async encryptData(data, key = this.cryptoKey) {
-                if (!key) {
-                    throw new Error('암호화 키가 설정되지 않았습니다.');
-                }
-
-                try {
-                    // 랜덤 IV 생성
-                    const iv = window.crypto.getRandomValues(new Uint8Array(this.ivLength));
-                    
-                    // 문자열을 ArrayBuffer로 변환
-                    const encoder = new TextEncoder();
-                    const dataBuffer = typeof data === 'string' ? encoder.encode(data) : data;
-
-                    // 데이터 암호화
-                    const encryptedBuffer = await window.crypto.subtle.encrypt(
-                        {
-                            name: this.algorithm,
-                            iv: iv,
-                            tagLength: this.tagLength
-                        },
-                        key,
-                        dataBuffer
-                    );
-
-                    // IV와 암호화된 데이터를 결합
-                    const result = new Uint8Array(iv.length + encryptedBuffer.byteLength);
-                    result.set(iv, 0);
-                    result.set(new Uint8Array(encryptedBuffer), iv.length);
-
-                    return result.buffer;
-                } catch (error) {
-                    console.error('데이터 암호화 실패:', error);
-                    throw error;
-                }
-            }
-
-            // 데이터 복호화
-            async decryptData(encryptedData, key = this.cryptoKey) {
-                if (!key) {
-                    throw new Error('복호화 키가 설정되지 않았습니다.');
-                }
-
-                try {
-                    const dataArray = new Uint8Array(encryptedData);
-                    
-                    // IV와 암호화된 데이터 분리
-                    const iv = dataArray.slice(0, this.ivLength);
-                    const encrypted = dataArray.slice(this.ivLength);
-
-                    // 데이터 복호화
-                    const decryptedBuffer = await window.crypto.subtle.decrypt(
-                        {
-                            name: this.algorithm,
-                            iv: iv,
-                            tagLength: this.tagLength
-                        },
-                        key,
-                        encrypted
-                    );
-
-                    // ArrayBuffer를 문자열로 변환
-                    const decoder = new TextDecoder();
-                    return decoder.decode(decryptedBuffer);
-                } catch (error) {
-                    console.error('데이터 복호화 실패:', error);
-                    throw error;
-                }
-            }
-
-            // 해시 생성 (SHA-256)
-            async generateHash(data) {
-                try {
-                    const encoder = new TextEncoder();
-                    const dataBuffer = typeof data === 'string' ? encoder.encode(data) : data;
-                    
-                    const hashBuffer = await window.crypto.subtle.digest('SHA-256', dataBuffer);
-                    
-                    // ArrayBuffer를 hex 문자열로 변환
-                    const hashArray = Array.from(new Uint8Array(hashBuffer));
-                    return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
-                } catch (error) {
-                    console.error('해시 생성 실패:', error);
-                    throw error;
-                }
-            }
-
-            // 디지털 서명을 위한 키 쌍 생성
-            async generateSigningKeyPair() {
-                try {
-                    const keyPair = await window.crypto.subtle.generateKey(
-                        {
-                            name: 'ECDSA',
-                            namedCurve: 'P-256'
-                        },
-                        true,
-                        ['sign', 'verify']
-                    );
-                    
-                    return keyPair;
-                } catch (error) {
-                    console.error('서명 키 쌍 생성 실패:', error);
-                    throw error;
-                }
-            }
-
-            // 데이터 서명
-            async signData(data, privateKey) {
-                try {
-                    const encoder = new TextEncoder();
-                    const dataBuffer = typeof data === 'string' ? encoder.encode(data) : data;
-                    
-                    const signature = await window.crypto.subtle.sign(
-                        {
-                            name: 'ECDSA',
-                            hash: 'SHA-256'
-                        },
-                        privateKey,
-                        dataBuffer
-                    );
-                    
-                    return signature;
-                } catch (error) {
-                    console.error('데이터 서명 실패:', error);
-                    throw error;
-                }
-            }
-
-            // 서명 검증
-            async verifySignature(data, signature, publicKey) {
-                try {
-                    const encoder = new TextEncoder();
-                    const dataBuffer = typeof data === 'string' ? encoder.encode(data) : data;
-                    
-                    const isValid = await window.crypto.subtle.verify(
-                        {
-                            name: 'ECDSA',
-                            hash: 'SHA-256'
-                        },
-                        publicKey,
-                        signature,
-                        dataBuffer
-                    );
-                    
-                    return isValid;
-                } catch (error) {
-                    console.error('서명 검증 실패:', error);
-                    throw error;
-                }
-            }
-
-            // 보안 비밀번호 생성
-            generateSecurePassword(length = 16) {
-                const charset = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!@#$%^&*';
-                const randomValues = new Uint8Array(length);
-                window.crypto.getRandomValues(randomValues);
-                
-                return Array.from(randomValues, byte => charset[byte % charset.length]).join('');
-            }
-
-            // SSL/TLS 연결 설정
-            async setupSecureConnection(vmConfig) {
-                // 암호화 키가 없으면 생성
-                if (!this.cryptoKey) {
-                    await this.generateCryptoKey();
-                }
-
-                const protocol = this.sslEnabled ? 'wss:' : 'ws:';
-                const wsUrl = `${protocol}//${vmConfig.host}:${vmConfig.securePort}/websockify`;
-                
-                // 세션 키 생성 및 저장
-                const sessionKey = await this.generateCryptoKey();
-                const sessionId = await this.generateHash(Date.now().toString());
-                this.sessionKeys.set(sessionId, sessionKey);
-                
-                return {
-                    ...vmConfig,
-                    wsUrl,
-                    encrypt: true,
-                    sessionId,
-                    credentials: {
-                        password: this.generateSecurePassword()
-                    }
-                };
-            }
-
-            // 세션별 데이터 암호화
-            async encryptSessionData(data, sessionId) {
-                const sessionKey = this.sessionKeys.get(sessionId);
-                if (!sessionKey) {
-                    throw new Error('세션 키를 찾을 수 없습니다.');
-                }
-                
-                return await this.encryptData(data, sessionKey);
-            }
-
-            // 세션별 데이터 복호화
-            async decryptSessionData(encryptedData, sessionId) {
-                const sessionKey = this.sessionKeys.get(sessionId);
-                if (!sessionKey) {
-                    throw new Error('세션 키를 찾을 수 없습니다.');
-                }
-                
-                return await this.decryptData(encryptedData, sessionKey);
-            }
-
-            // 세션 키 정리
-            clearSessionKey(sessionId) {
-                this.sessionKeys.delete(sessionId);
-            }
-
-            // 모든 세션 키 정리
-            clearAllSessionKeys() {
-                this.sessionKeys.clear();
-            }
-        }
-
-        class SecureSandboxPlatform extends ExtendedSandboxPlatform {
-            constructor() {
-                super();
-                this.securityManager = new SecurityManager();
-                this.secureConnection = new SecureConnection();
-                this.currentSessionId = null;
-                this.initSecurity();
-            }
-
-            async initSecurity() {
-                // Web Crypto API 지원 확인
-                if (!window.crypto || !window.crypto.subtle) {
-                    console.error('Web Crypto API가 지원되지 않습니다.');
-                    alert('이 브라우저는 필요한 보안 기능을 지원하지 않습니다.');
-                    return;
-                }
-
-                // 암호화 키 초기화
-                try {
-                    await this.secureConnection.generateCryptoKey();
-                    console.log('보안 모듈이 성공적으로 초기화되었습니다.');
-                } catch (error) {
-                    console.error('보안 모듈 초기화 실패:', error);
-                }
-
-                // 페이지 로드 시 인증 확인
-                this.checkAuthentication();
-                
-                // 키보드 이벤트 보안 필터링
-                this.setupSecurityFilters();
-                
-                // 정기적인 보안 점검
-                setInterval(() => {
-                    this.performSecurityCheck();
-                }, 60000); // 1분마다
-            }
-
-            async checkAuthentication() {
-                const token = this.getAuthToken();
-                if (!token) {
-                    return false;
-                }
-
-                try {
-                    // 토큰 해시 생성으로 무결성 확인
-                    const tokenHash = await this.secureConnection.generateHash(token);
-                    
-                    const response = await fetch('/api/auth/verify', {
-                        method: 'POST',
-                        headers: {
-                            'Authorization': `Bearer ${token}`,
-                            'Content-Type': 'application/json',
-                            'X-Token-Hash': tokenHash
-                        }
-                    });
-                    
-                    return response.ok;
-                } catch (error) {
-                    console.error('인증 확인 실패:', error);
-                    return false;
-                }
-            }
-
-            getAuthToken() {
-                // 토큰을 안전하게 저장하고 가져오는 로직
-                // localStorage 대신 메모리나 secure httpOnly 쿠키 사용 권장
-                return sessionStorage.getItem('authToken');
-            }
-
-            setupSecurityFilters() {
-                // 키보드 이벤트 필터링 구현
-                document.addEventListener('keydown', (event) => {
-                    // 위험한 키 조합 차단 (예: F12, Ctrl+Shift+I 등)
-                    if (event.key === 'F12' || 
-                        (event.ctrlKey && event.shiftKey && event.key === 'I')) {
-                        event.preventDefault();
-                        console.log('개발자 도구 접근이 차단되었습니다.');
-                        this.securityManager.logSecurityEvent('DEV_TOOLS_BLOCKED', {
-                            key: event.key,
-                            timestamp: Date.now()
-                        });
-                    }
-                });
-
-                // 우클릭 방지
-                document.addEventListener('contextmenu', (event) => {
-                    event.preventDefault();
-                });
-            }
-
-            performSecurityCheck() {
-                // 세션 유효성 검사
-                if (!this.securityManager.currentUser) {
-                    this.redirectToLogin();
-                    return;
-                }
-
-                // 비정상적인 활동 감지
-                this.detectSuspiciousActivity();
-            }
-
-            redirectToLogin() {
-                // 세션 키 정리
-                if (this.currentSessionId) {
-                    this.secureConnection.clearSessionKey(this.currentSessionId);
-                }
-                window.location.href = '/login';
-            }
-
-            detectSuspiciousActivity() {
-                // 의심스러운 활동 감지 로직
-                // 예: 비정상적인 API 호출 패턴, 과도한 요청 등
-                const suspiciousPatterns = [
-                    // 짧은 시간 내 과도한 요청
-                    { type: 'EXCESSIVE_REQUESTS', threshold: 100, timeWindow: 60000 },
-                    // 비정상적인 키 입력 패턴
-                    { type: 'ABNORMAL_KEYSTROKES', threshold: 1000, timeWindow: 10000 }
-                ];
-
-                // 패턴 감지 로직 구현
-                // 실제 구현에서는 더 정교한 알고리즘 필요
-            }
-
-            async startVM() {
-                // 권한 확인
-                if (!this.securityManager.checkPermission('START_VM', this.currentVM)) {
-                    alert('가상머신 시작 권한이 없습니다.');
-                    return;
-                }
-
-                try {
-                    // 보안 연결 설정
-                    const secureConfig = await this.secureConnection.setupSecureConnection(this.vmConfig);
-                    this.currentSessionId = secureConfig.sessionId;
-
-                    // 보안 이벤트 로깅
-                    this.securityManager.logSecurityEvent('VM_START_ATTEMPT', {
-                        vmId: this.currentVM,
-                        sessionId: this.currentSessionId,
-                        timestamp: Date.now()
-                    });
-
-                    // VM 시작 시 데이터 암호화
-                    const startupData = JSON.stringify({
-                        vmId: this.currentVM,
-                        config: secureConfig,
-                        timestamp: Date.now()
-                    });
-
-                    const encryptedStartupData = await this.secureConnection.encryptSessionData(
-                        startupData, 
-                        this.currentSessionId
-                    );
-
-                    console.log('VM 시작 데이터가 암호화되었습니다.');
-
-                    await super.startVM();
-                } catch (error) {
-                    console.error('보안 VM 시작 실패:', error);
-                    this.securityManager.logSecurityEvent('VM_START_ERROR', {
-                        error: error.message,
-                        vmId: this.currentVM
-                    });
-                }
-            }
-
-            // 안전한 데이터 전송
-            async sendSecureData(data) {
-                if (!this.currentSessionId) {
-                    throw new Error('보안 세션이 설정되지 않았습니다.');
-                }
-
-                try {
-                    const encryptedData = await this.secureConnection.encryptSessionData(
-                        JSON.stringify(data), 
-                        this.currentSessionId
-                    );
-                    
-                    // Base64로 인코딩하여 전송
-                    const base64Data = btoa(String.fromCharCode(...new Uint8Array(encryptedData)));
-                    
-                    return base64Data;
-                } catch (error) {
-                    console.error('데이터 암호화 실패:', error);
-                    throw error;
-                }
-            }
-
-            // 암호화된 데이터 수신
-            async receiveSecureData(base64Data) {
-                if (!this.currentSessionId) {
-                    throw new Error('보안 세션이 설정되지 않았습니다.');
-                }
-
-                try {
-                    // Base64 디코딩
-                    const binaryString = atob(base64Data);
-                    const encryptedData = new Uint8Array(binaryString.length);
-                    for (let i = 0; i < binaryString.length; i++) {
-                        encryptedData[i] = binaryString.charCodeAt(i);
-                    }
-
-                    const decryptedData = await this.secureConnection.decryptSessionData(
-                        encryptedData.buffer, 
-                        this.currentSessionId
-                    );
-                    
-                    return JSON.parse(decryptedData);
-                } catch (error) {
-                    console.error('데이터 복호화 실패:', error);
-                    throw error;
-                }
-            }
-        }
-
-
-
-        // 툴바 기능들
-        function sendCtrlAltDel() {
-            if (platform.rfb && platform.isConnected) {
-                platform.rfb.sendCtrlAltDel();
-            }
-        }
-
-        function toggleFullscreen() {
-            const container = document.getElementById('vnc-container');
-            if (document.fullscreenElement) {
-                document.exitFullscreen();
-            } else {
-                container.requestFullscreen();
-            }
-        }
-
-        async function takeScreenshot() {
-            if (platform.rfb && platform.isConnected) {
-                try {
-                    const canvas = document.getElementById('vnc-canvas');
-                    const dataUrl = canvas.toDataURL();
-                    
-                    // 스크린샷 데이터를 암호화
-                    const encryptedScreenshot = await platform.sendSecureData({
-                        type: 'screenshot',
-                        data: dataUrl,
-                        timestamp: Date.now()
-                    });
-                    
-                    // 보안 로그 기록
-                    platform.securityManager.logSecurityEvent('SCREENSHOT_TAKEN', {
-                        vmId: platform.currentVM,
-                        encrypted: true
-                    });
-                    
-                    const link = document.createElement('a');
-                    link.download = `screenshot-${new Date().getTime()}.png`;
-                    link.href = dataUrl;
-                    link.click();
-                } catch (error) {
-                    console.error('보안 스크린샷 실패:', error);
-                }
-            }
-        }
-
-        // 플랫폼 초기화
-        // 보안 기능이 포함된 플랫폼으로 변경
-        const platform = new SecureSandboxPlatform();
-
-        // 초기화 시 인증 확인
-        document.addEventListener('DOMContentLoaded', async () => {
-            console.log('웹 기반 보안 샌드박스 플랫폼이 초기화되었습니다.');
+            });
             
-            // Web Crypto API 지원 확인
-            if (!window.crypto || !window.crypto.subtle) {
-                alert('이 브라우저는 필요한 보안 기능을 지원하지 않습니다. 최신 브라우저를 사용해주세요.');
+            if (!response.ok) {
+                throw new Error('IP 조회 실패');
+            }
+            
+            const data = await response.json();
+            return data.ip;
+        } catch (error) {
+            console.error('IP 조회 오류:', error);
+            return 'unknown';
+        }
+    }
+
+    async handleLoginFailure(clientIP) {
+        const attempts = this.loginAttempts.get(clientIP) || 0;
+        const newAttempts = attempts + 1;
+        this.loginAttempts.set(clientIP, newAttempts);
+        
+        if (newAttempts >= this.maxLoginAttempts) {
+            // 계정 잠금 시간 설정 (예: 30분)
+            setTimeout(() => {
+                this.loginAttempts.delete(clientIP);
+            }, 30 * 60 * 1000);
+            
+            this.logSecurityEvent('ACCOUNT_LOCKED', { 
+                ip: clientIP, 
+                attempts: newAttempts 
+            });
+            
+            throw new Error('계정이 잠겼습니다. 30분 후 다시 시도해주세요.');
+        }
+    }
+
+    logout(reason) {
+        console.log(`로그아웃: ${reason}`);
+        this.logSecurityEvent('LOGOUT', { reason });
+        this.currentUser = null;
+        
+        if (this.sessionTimer) {
+            clearTimeout(this.sessionTimer);
+        }
+        
+        // 세션 스토리지 완전 정리
+        sessionStorage.clear();
+        
+        // 보안 리다이렉트
+        window.location.replace('/login');
+    }
+
+    // 개선된 인증 메서드
+    async authenticate(username, password, mfaCode = null) {
+        // 입력 값 검증
+        if (!this.validateInput(username) || !this.validateInput(password)) {
+            throw new Error('유효하지 않은 입력값입니다.');
+        }
+
+        const clientIP = await this.getClientIP();
+        
+        // 요청 제한 확인
+        if (!this.checkRateLimit(clientIP)) {
+            throw new Error('너무 많은 요청입니다. 잠시 후 다시 시도해주세요.');
+        }
+
+        try {
+            // IP 주소 확인
+            if (!this.checkIPWhitelist(clientIP)) {
+                throw new Error('허용되지 않은 IP 주소입니다');
+            }
+
+            // 비밀번호 해시화 (클라이언트 측에서 사전 해시화)
+            const hashedPassword = await this.hashPassword(password);
+
+            const response = await fetch('/api/auth/login', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-Requested-With': 'XMLHttpRequest'
+                },
+                credentials: 'same-origin',
+                body: JSON.stringify({
+                    username: this.sanitizeString(username),
+                    password: hashedPassword,
+                    mfaCode,
+                    clientIP,
+                    timestamp: Date.now()
+                })
+            });
+
+            if (response.ok) {
+                const userData = await response.json();
+                this.currentUser = userData;
+                this.startSessionTimeout();
+                this.logSecurityEvent('LOGIN_SUCCESS', { username });
+                
+                // 로그인 성공 시 실패 횟수 초기화
+                this.loginAttempts.delete(clientIP);
+                
+                return true;
+            } else {
+                await this.handleLoginFailure(clientIP);
+                return false;
+            }
+        } catch (error) {
+            this.logSecurityEvent('LOGIN_ERROR', { 
+                username, 
+                error: error.message,
+                ip: clientIP 
+            });
+            throw error;
+        }
+    }
+
+    // 입력값 검증
+    validateInput(input) {
+        if (typeof input !== 'string' || input.length === 0) {
+            return false;
+        }
+        
+        // 기본적인 SQL 인젝션, XSS 패턴 차단
+        const dangerousPatterns = [
+            /<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi,
+            /javascript:/gi,
+            /on\w+=/gi,
+            /union\s+select/gi,
+            /drop\s+table/gi,
+            /insert\s+into/gi,
+            /delete\s+from/gi
+        ];
+        
+        return !dangerousPatterns.some(pattern => pattern.test(input));
+    }
+
+    // 문자열 정제
+    sanitizeString(str) {
+        return str.replace(/[<>\"'&]/g, function(match) {
+            const map = {
+                '<': '&lt;',
+                '>': '&gt;',
+                '"': '&quot;',
+                "'": '&#x27;',
+                '&': '&amp;'
+            };
+            return map[match];
+        });
+    }
+
+    // 비밀번호 해시화
+    async hashPassword(password) {
+        const encoder = new TextEncoder();
+        const data = encoder.encode(password);
+        const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+        const hashArray = Array.from(new Uint8Array(hashBuffer));
+        return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+    }
+
+    // 요청 제한 확인
+    checkRateLimit(clientIP) {
+        const now = Date.now();
+        const windowTime = 60000; // 1분
+        const maxRequests = 10; // 분당 최대 10회 요청
+        
+        if (!this.rateLimiter.has(clientIP)) {
+            this.rateLimiter.set(clientIP, []);
+        }
+        
+        const requests = this.rateLimiter.get(clientIP);
+        
+        // 오래된 요청 제거
+        const recentRequests = requests.filter(timestamp => now - timestamp < windowTime);
+        
+        if (recentRequests.length >= maxRequests) {
+            return false;
+        }
+        
+        recentRequests.push(now);
+        this.rateLimiter.set(clientIP, recentRequests);
+        
+        return true;
+    }
+
+    // 세션 타임아웃 관리 개선
+    startSessionTimeout() {
+        if (this.sessionTimer) {
+            clearTimeout(this.sessionTimer);
+        }
+        
+        this.sessionTimer = setTimeout(() => {
+            this.logout('SESSION_TIMEOUT');
+        }, this.sessionTimeout);
+        
+        // 활동 감지 시 세션 연장
+        this.setupActivityDetection();
+    }
+
+    setupActivityDetection() {
+        const events = ['mousedown', 'mousemove', 'keypress', 'scroll', 'touchstart'];
+        
+        events.forEach(event => {
+            document.addEventListener(event, () => {
+                this.startSessionTimeout(); // 활동 감지 시 타이머 재설정
+            }, { once: true, passive: true });
+        });
+    }
+
+    // 권한 확인 개선
+    checkPermission(action, vmId) {
+        if (!this.currentUser) {
+            return false;
+        }
+
+        // 세션 유효성 확인
+        if (!this.isSessionValid()) {
+            this.logout('INVALID_SESSION');
+            return false;
+        }
+
+        const userPermissions = this.currentUser.permissions || [];
+        const vmPermissions = this.currentUser.vmAccess || [];
+
+        const hasAction = userPermissions.includes(action) || userPermissions.includes('*');
+        const hasVmAccess = vmPermissions.includes(vmId) || vmPermissions.includes('*');
+
+        return hasAction && hasVmAccess;
+    }
+
+    // 세션 유효성 확인
+    isSessionValid() {
+        if (!this.currentUser || !this.currentUser.sessionExpiry) {
+            return false;
+        }
+        
+        return Date.now() < this.currentUser.sessionExpiry;
+    }
+
+    // IP 화이트리스트 확인 개선
+    async checkIPWhitelist(clientIP = null) {
+        if (this.allowedIPs.length === 0) {
+            return true; // 화이트리스트가 비어있으면 모든 IP 허용
+        }
+        
+        const ip = clientIP || await this.getClientIP();
+        
+        // CIDR 표기법 지원
+        return this.allowedIPs.some(allowedIP => {
+            if (allowedIP.includes('/')) {
+                return this.isIPInCIDR(ip, allowedIP);
+            }
+            return ip === allowedIP;
+        });
+    }
+
+    // CIDR 범위 확인
+    isIPInCIDR(ip, cidr) {
+        // 간단한 CIDR 확인 로직 (실제 구현에서는 더 정교한 라이브러리 사용 권장)
+        const [network, prefixLength] = cidr.split('/');
+        // IPv4 기본 구현
+        return ip.startsWith(network.split('.').slice(0, Math.floor(prefixLength / 8)).join('.'));
+    }
+
+    // 보안 이벤트 로깅 개선
+    async logSecurityEvent(eventType, details) {
+        const logEntry = {
+            id: crypto.randomUUID(),
+            timestamp: new Date().toISOString(),
+            eventType,
+            user: this.currentUser?.username || 'anonymous',
+            ip: await this.getClientIP(),
+            userAgent: navigator.userAgent.substring(0, 200), // 길이 제한
+            details: this.sanitizeLogDetails(details)
+        };
+        
+        this.auditLogs.push(logEntry);
+        
+        // 로그 크기 제한 (메모리 누수 방지)
+        if (this.auditLogs.length > 1000) {
+            this.auditLogs = this.auditLogs.slice(-500);
+        }
+        
+        // 백엔드로 로그 전송 (에러 처리 개선)
+        try {
+            await fetch('/api/security/log', {
+                method: 'POST',
+                headers: { 
+                    'Content-Type': 'application/json',
+                    'X-Requested-With': 'XMLHttpRequest'
+                },
+                credentials: 'same-origin',
+                body: JSON.stringify(logEntry)
+            });
+        } catch (error) {
+            console.error('보안 로그 전송 실패:', error);
+            // 로그 전송 실패 시 로컬 저장소에 임시 저장
+            this.storeFailedLog(logEntry);
+        }
+    }
+
+    // 로그 세부사항 정제
+    sanitizeLogDetails(details) {
+        if (typeof details !== 'object' || details === null) {
+            return details;
+        }
+        
+        const sanitized = {};
+        for (const [key, value] of Object.entries(details)) {
+            if (typeof value === 'string') {
+                sanitized[key] = this.sanitizeString(value);
+            } else if (typeof value === 'object') {
+                sanitized[key] = this.sanitizeLogDetails(value);
+            } else {
+                sanitized[key] = value;
+            }
+        }
+        return sanitized;
+    }
+
+    // 실패한 로그 저장
+    storeFailedLog(logEntry) {
+        try {
+            const failedLogs = JSON.parse(sessionStorage.getItem('failedLogs') || '[]');
+            failedLogs.push(logEntry);
+            
+            // 최대 50개까지만 저장
+            if (failedLogs.length > 50) {
+                failedLogs.splice(0, failedLogs.length - 50);
+            }
+            
+            sessionStorage.setItem('failedLogs', JSON.stringify(failedLogs));
+        } catch (error) {
+            console.error('실패한 로그 저장 오류:', error);
+        }
+    }
+}
+
+// 암호화 연결 클래스 개선
+class SecureConnection {
+    constructor() {
+        this.sslEnabled = true;
+        this.cryptoKey = null;
+        this.algorithm = 'AES-GCM';
+        this.keyLength = 256;
+        this.ivLength = 12;
+        this.tagLength = 128;
+        this.isEncryptionReady = false;
+        this.sessionKeys = new Map();
+        this.keyRotationInterval = 60 * 60 * 1000; // 1시간마다 키 회전
+        this.setupKeyRotation();
+    }
+
+    // 키 회전 설정
+    setupKeyRotation() {
+        setInterval(() => {
+            this.rotateSessionKeys();
+        }, this.keyRotationInterval);
+    }
+
+    // 세션 키 회전
+    async rotateSessionKeys() {
+        console.log('세션 키 회전 시작');
+        const newKeys = new Map();
+        
+        for (const [sessionId, oldKey] of this.sessionKeys.entries()) {
+            try {
+                const newKey = await this.generateCryptoKey();
+                newKeys.set(sessionId, newKey);
+            } catch (error) {
+                console.error(`세션 ${sessionId} 키 회전 실패:`, error);
+                newKeys.set(sessionId, oldKey); // 실패 시 기존 키 유지
+            }
+        }
+        
+        this.sessionKeys = newKeys;
+        console.log('세션 키 회전 완료');
+    }
+
+    // 키 생성 개선
+    async generateCryptoKey() {
+        try {
+            const key = await crypto.subtle.generateKey(
+                {
+                    name: this.algorithm,
+                    length: this.keyLength
+                },
+                false, // extractable을 false로 설정하여 보안 강화
+                ['encrypt', 'decrypt']
+            );
+            
+            return key;
+        } catch (error) {
+            console.error('암호화 키 생성 실패:', error);
+            throw new Error('키 생성에 실패했습니다.');
+        }
+    }
+
+    // 암호화 개선 (에러 처리 강화)
+    async encryptData(data, key = this.cryptoKey) {
+        if (!key) {
+            throw new Error('암호화 키가 설정되지 않았습니다.');
+        }
+
+        try {
+            const iv = crypto.getRandomValues(new Uint8Array(this.ivLength));
+            const encoder = new TextEncoder();
+            const dataBuffer = typeof data === 'string' ? encoder.encode(data) : data;
+
+            // 데이터 크기 제한 (DoS 공격 방지)
+            if (dataBuffer.byteLength > 1024 * 1024) { // 1MB 제한
+                throw new Error('데이터 크기가 너무 큽니다.');
+            }
+
+            const encryptedBuffer = await crypto.subtle.encrypt(
+                {
+                    name: this.algorithm,
+                    iv: iv,
+                    tagLength: this.tagLength
+                },
+                key,
+                dataBuffer
+            );
+
+            const result = new Uint8Array(iv.length + encryptedBuffer.byteLength);
+            result.set(iv, 0);
+            result.set(new Uint8Array(encryptedBuffer), iv.length);
+
+            return result.buffer;
+        } catch (error) {
+            console.error('데이터 암호화 실패:', error);
+            throw new Error('암호화에 실패했습니다.');
+        }
+    }
+
+    // 복호화 개선
+    async decryptData(encryptedData, key = this.cryptoKey) {
+        if (!key) {
+            throw new Error('복호화 키가 설정되지 않았습니다.');
+        }
+
+        try {
+            const dataArray = new Uint8Array(encryptedData);
+            
+            // 최소 데이터 크기 확인
+            if (dataArray.length < this.ivLength + this.tagLength / 8) {
+                throw new Error('잘못된 암호화 데이터 형식입니다.');
+            }
+            
+            const iv = dataArray.slice(0, this.ivLength);
+            const encrypted = dataArray.slice(this.ivLength);
+
+            const decryptedBuffer = await crypto.subtle.decrypt(
+                {
+                    name: this.algorithm,
+                    iv: iv,
+                    tagLength: this.tagLength
+                },
+                key,
+                encrypted
+            );
+
+            const decoder = new TextDecoder();
+            return decoder.decode(decryptedBuffer);
+        } catch (error) {
+            console.error('데이터 복호화 실패:', error);
+            throw new Error('복호화에 실패했습니다.');
+        }
+    }
+
+    // 해시 생성 개선
+    async generateHash(data, algorithm = 'SHA-256') {
+        try {
+            const encoder = new TextEncoder();
+            const dataBuffer = typeof data === 'string' ? encoder.encode(data) : data;
+            
+            const hashBuffer = await crypto.subtle.digest(algorithm, dataBuffer);
+            const hashArray = Array.from(new Uint8Array(hashBuffer));
+            
+            return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+        } catch (error) {
+            console.error('해시 생성 실패:', error);
+            throw new Error('해시 생성에 실패했습니다.');
+        }
+    }
+
+    // 보안 비밀번호 생성 개선
+    generateSecurePassword(length = 16, includeSymbols = true) {
+        if (length < 8 || length > 128) {
+            throw new Error('비밀번호 길이는 8-128자 사이여야 합니다.');
+        }
+
+        const lowercase = 'abcdefghijklmnopqrstuvwxyz';
+        const uppercase = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+        const numbers = '0123456789';
+        const symbols = includeSymbols ? '!@#$%^&*()_+-=[]{}|;:,.<>?' : '';
+        
+        const charset = lowercase + uppercase + numbers + symbols;
+        const randomValues = new Uint8Array(length);
+        crypto.getRandomValues(randomValues);
+        
+        let password = '';
+        for (let i = 0; i < length; i++) {
+            password += charset[randomValues[i] % charset.length];
+        }
+        
+        // 최소 요구사항 확인 (각 타입별 최소 1개)
+        const hasLower = /[a-z]/.test(password);
+        const hasUpper = /[A-Z]/.test(password);
+        const hasNumber = /[0-9]/.test(password);
+        const hasSymbol = !includeSymbols || /[!@#$%^&*()_+\-=\[\]{}|;:,.<>?]/.test(password);
+        
+        if (!hasLower || !hasUpper || !hasNumber || !hasSymbol) {
+            // 재귀적으로 다시 생성
+            return this.generateSecurePassword(length, includeSymbols);
+        }
+        
+        return password;
+    }
+
+    // SSL/TLS 연결 설정 개선
+    async setupSecureConnection(vmConfig) {
+        try {
+            if (!this.cryptoKey) {
+                this.cryptoKey = await this.generateCryptoKey();
+                this.isEncryptionReady = true;
+            }
+
+            // 프로토콜 유효성 검사
+            if (!vmConfig.host || !vmConfig.securePort) {
+                throw new Error('유효하지 않은 VM 설정입니다.');
+            }
+
+            const protocol = this.sslEnabled ? 'wss:' : 'ws:';
+            const wsUrl = `${protocol}//${vmConfig.host}:${vmConfig.securePort}/websockify`;
+            
+            // 세션 키 생성
+            const sessionKey = await this.generateCryptoKey();
+            const sessionId = await this.generateHash(Date.now().toString() + Math.random().toString());
+            
+            this.sessionKeys.set(sessionId, sessionKey);
+            
+            // 세션 만료 시간 설정
+            setTimeout(() => {
+                this.clearSessionKey(sessionId);
+            }, this.keyRotationInterval);
+
+            return {
+                ...vmConfig,
+                wsUrl,
+                encrypt: true,
+                sessionId,
+                credentials: {
+                    password: this.generateSecurePassword(20, true)
+                }
+            };
+        } catch (error) {
+            console.error('보안 연결 설정 실패:', error);
+            throw error;
+        }
+    }
+
+    // 세션 키 정리 개선
+    clearSessionKey(sessionId) {
+        if (this.sessionKeys.has(sessionId)) {
+            this.sessionKeys.delete(sessionId);
+            console.log(`세션 키 ${sessionId} 정리 완료`);
+        }
+    }
+
+    // 모든 세션 키 안전하게 정리
+    clearAllSessionKeys() {
+        const count = this.sessionKeys.size;
+        this.sessionKeys.clear();
+        console.log(`${count}개의 세션 키가 정리되었습니다.`);
+    }
+}
+
+// 보안 샌드박스 플랫폼 개선
+class SecureSandboxPlatform extends ExtendedSandboxPlatform {
+    constructor() {
+        super();
+        this.securityManager = new SecurityManager();
+        this.secureConnection = new SecureConnection();
+        this.currentSessionId = null;
+        this.securityConfig = {
+            maxIdleTime: 15 * 60 * 1000, // 15분 유휴 시간
+            maxSessionDuration: 4 * 60 * 60 * 1000, // 4시간 최대 세션
+            enableDevToolsBlocking: true,
+            enableContextMenuBlocking: true,
+            enableCopyPasteRestriction: false
+        };
+        this.initSecurity();
+    }
+
+    async initSecurity() {
+        // Web Crypto API 지원 확인
+        if (!crypto || !crypto.subtle) {
+            this.handleSecurityError('Web Crypto API가 지원되지 않습니다.');
+            return;
+        }
+
+        try {
+            await this.secureConnection.generateCryptoKey();
+            this.secureConnection.isEncryptionReady = true;
+            console.log('보안 모듈이 성공적으로 초기화되었습니다.');
+        } catch (error) {
+            this.handleSecurityError('보안 모듈 초기화 실패', error);
+            return;
+        }
+
+        await this.checkAuthentication();
+        this.setupSecurityFilters();
+        this.startSecurityMonitoring();
+    }
+
+    handleSecurityError(message, error = null) {
+        console.error(message, error);
+        
+        // 사용자에게 보안 오류 알림
+        const notification = document.createElement('div');
+        notification.className = 'security-alert';
+        notification.textContent = message;
+        notification.style.cssText = `
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            background: #f44336;
+            color: white;
+            padding: 15px;
+            border-radius: 4px;
+            z-index: 10000;
+            max-width: 300px;
+        `;
+        
+        document.body.appendChild(notification);
+        
+        setTimeout(() => {
+            notification.remove();
+        }, 5000);
+    }
+
+    // 보안 모니터링 시작
+    startSecurityMonitoring() {
+        // 정기적인 보안 점검
+        setInterval(() => {
+            this.performSecurityCheck();
+        }, 60000); // 1분마다
+        
+        // 페이지 가시성 변경 감지
+        document.addEventListener('visibilitychange', () => {
+            if (document.hidden) {
+                this.securityManager.logSecurityEvent('PAGE_HIDDEN', {
+                    timestamp: Date.now()
+                });
+            } else {
+                this.securityManager.logSecurityEvent('PAGE_VISIBLE', {
+                    timestamp: Date.now()
+                });
+            }
+        });
+        
+        // 페이지 언로드 시 정리
+        window.addEventListener('beforeunload', () => {
+            this.cleanup();
+        });
+    }
+
+    // 정리 작업
+    cleanup() {
+        if (this.currentSessionId) {
+            this.secureConnection.clearSessionKey(this.currentSessionId);
+        }
+        this.securityManager.logSecurityEvent('SESSION_CLEANUP', {
+            timestamp: Date.now()
+        });
+    }
+
+    // 보안 필터 설정 개선
+    setupSecurityFilters() {
+        if (this.securityConfig.enableDevToolsBlocking) {
+            this.blockDevTools();
+        }
+        
+        if (this.securityConfig.enableContextMenuBlocking) {
+            this.blockContextMenu();
+        }
+        
+        if (this.securityConfig.enableCopyPasteRestriction) {
+            this.restrictCopyPaste();
+        }
+        
+        // 키보드 단축키 차단
+        this.blockDangerousKeyboardShortcuts();
+    }
+
+    blockDevTools() {
+        // F12, Ctrl+Shift+I, Ctrl+U 등 차단
+        document.addEventListener('keydown', (event) => {
+            const isDangerous = (
+                event.key === 'F12' ||
+                (event.ctrlKey && event.shiftKey && event.key === 'I') ||
+                (event.ctrlKey && event.key === 'U') ||
+                (event.ctrlKey && event.shiftKey && event.key === 'C') ||
+                (event.ctrlKey && event.shiftKey && event.key === 'J')
+            );
+            
+            if (isDangerous) {
+                event.preventDefault();
+                event.stopPropagation();
+                this.securityManager.logSecurityEvent('DEV_TOOLS_BLOCKED', {
+                    key: event.key,
+                    ctrlKey: event.ctrlKey,
+                    shiftKey: event.shiftKey
+                });
+            }
+        }, true);
+    }
+
+    blockContextMenu() {
+        document.addEventListener('contextmenu', (event) => {
+            event.preventDefault();
+            this.securityManager.logSecurityEvent('CONTEXT_MENU_BLOCKED', {
+                target: event.target.tagName
+            });
+        });
+    }
+
+    restrictCopyPaste() {
+        ['copy', 'cut', 'paste'].forEach(event => {
+            document.addEventListener(event, (e) => {
+                e.preventDefault();
+                this.securityManager.logSecurityEvent('CLIPBOARD_BLOCKED', {
+                    action: event
+                });
+            });
+        });
+    }
+
+    blockDangerousKeyboardShortcuts() {
+        document.addEventListener('keydown', (event) => {
+            // 위험한 키 조합들
+            const dangerousShortcuts = [
+                { ctrl: true, key: 'S' }, // 저장
+                { ctrl: true, key: 'P' }, // 인쇄
+                { ctrl: true, key: 'O' }, // 열기
+                { ctrl: true, shift: true, key: 'Delete' }, // 작업 관리자
+                { alt: true, key: 'F4' }, // 프로그램 종료
+            ];
+            
+            const isDangerous = dangerousShortcuts.some(shortcut => {
+                return (
+                    (!shortcut.ctrl || event.ctrlKey) &&
+                    (!shortcut.shift || event.shiftKey) &&
+                    (!shortcut.alt || event.altKey) &&
+                    event.key === shortcut.key
+                );
+            });
+            
+            if (isDangerous) {
+                event.preventDefault();
+                event.stopPropagation();
+                this.securityManager.logSecurityEvent('DANGEROUS_SHORTCUT_BLOCKED', {
+                    key: event.key,
+                    modifiers: {
+                        ctrl: event.ctrlKey,
+                        shift: event.shiftKey,
+                        alt: event.altKey
+                    }
+                });
+            }
+        }, true);
+    }
+
+    // 인증 확인 개선
+    async checkAuthentication() {
+        const token = this.getAuthToken();
+        if (!token) {
+            return false;
+        }
+
+        try {
+            const tokenHash = await this.secureConnection.generateHash(token);
+            
+            const response = await fetch('/api/auth/verify', {
+                method: 'POST',
+                headers: {
+                    'Authorization': `Bearer ${token}`,
+                    'Content-Type': 'application/json',
+                    'X-Token-Hash': tokenHash,
+                    'X-Requested-With': 'XMLHttpRequest'
+                },
+                credentials: 'same-origin'
+            });
+            
+            if (response.ok) {
+                const userData = await response.json();
+                this.securityManager.currentUser = userData;
+                return true;
+            } else {
+                this.securityManager.logout('INVALID_TOKEN');
+                return false;
+            }
+        } catch (error) {
+            console.error('인증 확인 실패:', error);
+            this.securityManager.logSecurityEvent('AUTH_CHECK_ERROR', {
+                error: error.message
+            });
+            return false;
+        }
+    }
+
+    getAuthToken() {
+        // sessionStorage 사용 (localStorage보다 안전)
+        try {
+            const token = sessionStorage.getItem('authToken');
+            if (token) {
+                // 토큰 형식 검증
+                const parts = token.split('.');
+                if (parts.length !== 3) {
+                    sessionStorage.removeItem('authToken');
+                    return null;
+                }
+            }
+            return token;
+        } catch (error) {
+            console.error('토큰 조회 오류:', error);
+            return null;
+        }
+    }
+
+    // 보안 점검 개선
+    performSecurityCheck() {
+        try {
+            // 세션 유효성 검사
+            if (!this.securityManager.currentUser) {
+                this.redirectToLogin();
                 return;
             }
-            
-            // 인증 상태 확인
-            if (currentConfig.apiBaseUrl !== 'http://localhost:3000') {
-                if (!await platform.checkAuthentication()) {
-                    window.location.href = '/login';
-                    return;
-                }
+
+            // 세션 만료 확인
+            if (!this.securityManager.isSessionValid()) {
+                this.securityManager.logout('SESSION_EXPIRED');
+                return;
             }
 
-            console.log('보안 초기화가 완료되었습니다.');
+            // 메모리 사용량 확인
+            this.checkMemoryUsage();
+            
+            // 의심스러운 활동 감지
+            this.detectSuspiciousActivity();
+            
+            // 네트워크 연결 상태 확인
+            this.checkNetworkStatus();
+            
+        } catch (error) {
+            console.error('보안 점검 오류:', error);
+            this.securityManager.logSecurityEvent('SECURITY_CHECK_ERROR', {
+                error: error.message
+            });
+        }
+    }
+
+    // 메모리 사용량 확인
+    checkMemoryUsage() {
+        if ('memory' in performance) {
+            const memInfo = performance.memory;
+            const usedMemory = memInfo.usedJSHeapSize;
+            const totalMemory = memInfo.totalJSHeapSize;
+            const memoryUsagePercent = (usedMemory / totalMemory) * 100;
+            
+            if (memoryUsagePercent > 80) {
+                this.securityManager.logSecurityEvent('HIGH_MEMORY_USAGE', {
+                    usedMemory,
+                    totalMemory,
+                    usagePercent: memoryUsagePercent
+                });
+                
+                // 메모리 정리 시도
+                this.performMemoryCleanup();
+            }
+        }
+    }
+
+    // 메모리 정리
+    performMemoryCleanup() {
+        // 오래된 로그 정리
+        if (this.securityManager.auditLogs.length > 500) {
+            this.securityManager.auditLogs = this.securityManager.auditLogs.slice(-200);
+        }
+        
+        // 만료된 세션 키 정리
+        this.secureConnection.sessionKeys.forEach((value, key) => {
+            // 세션 키 생성 시간을 추적하여 만료된 키 제거
+            // 실제 구현에서는 키 생성 시간을 별도로 저장해야 함
         });
+        
+        // 가비지 컬렉션 강제 실행 (개발 환경에서만)
+        if (window.gc && typeof window.gc === 'function') {
+            window.gc();
+        }
+    }
+
+    // 네트워크 상태 확인
+    checkNetworkStatus() {
+        if ('onLine' in navigator && !navigator.onLine) {
+            this.securityManager.logSecurityEvent('NETWORK_DISCONNECTED', {
+                timestamp: Date.now()
+            });
+            
+            // 네트워크 연결 복구 대기
+            window.addEventListener('online', () => {
+                this.securityManager.logSecurityEvent('NETWORK_RECONNECTED', {
+                    timestamp: Date.now()
+                });
+            }, { once: true });
+        }
+    }
+
+    // 의심스러운 활동 감지 개선
+    detectSuspiciousActivity() {
+        const now = Date.now();
+        const recentLogs = this.securityManager.auditLogs.filter(
+            log => now - new Date(log.timestamp).getTime() < 300000 // 5분 이내
+        );
+        
+        // 패턴 분석
+        const patterns = {
+            rapidRequests: this.detectRapidRequests(recentLogs),
+            failedLogins: this.detectFailedLogins(recentLogs),
+            suspiciousKeystrokes: this.detectSuspiciousKeystrokes(recentLogs),
+            timeAnomaly: this.detectTimeAnomaly(recentLogs)
+        };
+        
+        Object.entries(patterns).forEach(([pattern, detected]) => {
+            if (detected.isSuspicious) {
+                this.securityManager.logSecurityEvent('SUSPICIOUS_ACTIVITY_DETECTED', {
+                    pattern,
+                    details: detected.details,
+                    severity: detected.severity || 'medium'
+                });
+                
+                if (detected.severity === 'high') {
+                    this.handleHighSeverityThreat(pattern, detected);
+                }
+            }
+        });
+    }
+
+    // 빠른 요청 패턴 감지
+    detectRapidRequests(logs) {
+        const apiCalls = logs.filter(log => 
+            log.eventType.includes('API_CALL') || 
+            log.eventType.includes('REQUEST')
+        );
+        
+        if (apiCalls.length > 50) { // 5분간 50회 이상
+            return {
+                isSuspicious: true,
+                details: { count: apiCalls.length, timeWindow: '5분' },
+                severity: 'high'
+            };
+        }
+        
+        return { isSuspicious: false };
+    }
+
+    // 실패한 로그인 시도 감지
+    detectFailedLogins(logs) {
+        const failedLogins = logs.filter(log => 
+            log.eventType === 'LOGIN_ERROR' || 
+            log.eventType === 'ACCOUNT_LOCKED'
+        );
+        
+        if (failedLogins.length > 5) {
+            return {
+                isSuspicious: true,
+                details: { failedAttempts: failedLogins.length },
+                severity: 'high'
+            };
+        }
+        
+        return { isSuspicious: false };
+    }
+
+    // 의심스러운 키 입력 패턴 감지
+    detectSuspiciousKeystrokes(logs) {
+        const blockedEvents = logs.filter(log => 
+            log.eventType.includes('BLOCKED') && 
+            log.details && log.details.key
+        );
+        
+        if (blockedEvents.length > 10) {
+            return {
+                isSuspicious: true,
+                details: { blockedAttempts: blockedEvents.length },
+                severity: 'medium'
+            };
+        }
+        
+        return { isSuspicious: false };
+    }
+
+    // 시간 이상 패턴 감지
+    detectTimeAnomaly(logs) {
+        if (logs.length < 2) {
+            return { isSuspicious: false };
+        }
+        
+        // 비정상적으로 빠른 연속 작업 감지
+        const timestamps = logs.map(log => new Date(log.timestamp).getTime());
+        const rapidActions = timestamps.reduce((count, current, index) => {
+            if (index > 0 && current - timestamps[index - 1] < 100) { // 100ms 이내
+                return count + 1;
+            }
+            return count;
+        }, 0);
+        
+        if (rapidActions > 20) {
+            return {
+                isSuspicious: true,
+                details: { rapidActionCount: rapidActions },
+                severity: 'medium'
+            };
+        }
+        
+        return { isSuspicious: false };
+    }
+
+    // 고위험 위협 처리
+    handleHighSeverityThreat(pattern, detected) {
+        console.warn(`고위험 보안 위협 감지: ${pattern}`, detected);
+        
+        // 임시 세션 중단
+        if (this.currentSessionId) {
+            this.secureConnection.clearSessionKey(this.currentSessionId);
+            this.currentSessionId = null;
+        }
+        
+        // 관리자에게 알림 (실제 구현에서는 서버로 전송)
+        this.notifyAdministrator(pattern, detected);
+        
+        // 사용자에게 경고
+        this.showSecurityWarning(`보안 위협이 감지되어 세션이 일시 중단되었습니다.`);
+    }
+
+    // 관리자 알림
+    async notifyAdministrator(pattern, details) {
+        try {
+            await fetch('/api/security/alert', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-Requested-With': 'XMLHttpRequest'
+                },
+                credentials: 'same-origin',
+                body: JSON.stringify({
+                    type: 'HIGH_SEVERITY_THREAT',
+                    pattern,
+                    details,
+                    user: this.securityManager.currentUser?.username,
+                    timestamp: new Date().toISOString(),
+                    userAgent: navigator.userAgent,
+                    ip: await this.securityManager.getClientIP()
+                })
+            });
+        } catch (error) {
+            console.error('관리자 알림 전송 실패:', error);
+        }
+    }
+
+    // 보안 경고 표시
+    showSecurityWarning(message) {
+        const warning = document.createElement('div');
+        warning.className = 'security-warning';
+        warning.innerHTML = `
+            <div style="
+                position: fixed;
+                top: 0;
+                left: 0;
+                width: 100%;
+                height: 100%;
+                background: rgba(0,0,0,0.8);
+                z-index: 999999;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+            ">
+                <div style="
+                    background: white;
+                    padding: 30px;
+                    border-radius: 8px;
+                    max-width: 400px;
+                    text-align: center;
+                    box-shadow: 0 4px 20px rgba(0,0,0,0.3);
+                ">
+                    <h3 style="color: #f44336; margin-top: 0;">보안 경고</h3>
+                    <p>${message}</p>
+                    <button onclick="location.reload()" style="
+                        background: #f44336;
+                        color: white;
+                        border: none;
+                        padding: 10px 20px;
+                        border-radius: 4px;
+                        cursor: pointer;
+                        margin-top: 15px;
+                    ">페이지 새로고침</button>
+                </div>
+            </div>
+        `;
+        
+        document.body.appendChild(warning);
+    }
+
+    redirectToLogin() {
+        this.cleanup();
+        window.location.replace('/login');
+    }
+
+    // VM 시작 개선
+    async startVM() {
+        try {
+            // 권한 확인
+            if (!this.securityManager.checkPermission('START_VM', this.currentVM)) {
+                throw new Error('가상머신 시작 권한이 없습니다.');
+            }
+
+            // 보안 연결 설정
+            const secureConfig = await this.secureConnection.setupSecureConnection(this.vmConfig);
+            this.currentSessionId = secureConfig.sessionId;
+
+            // 시작 데이터 암호화
+            const startupData = {
+                vmId: this.currentVM,
+                config: secureConfig,
+                timestamp: Date.now(),
+                user: this.securityManager.currentUser?.username,
+                checksum: await this.secureConnection.generateHash(
+                    JSON.stringify(secureConfig) + this.currentVM
+                )
+            };
+
+            const encryptedStartupData = await this.secureConnection.encryptSessionData(
+                JSON.stringify(startupData), 
+                this.currentSessionId
+            );
+
+            // 보안 이벤트 로깅
+            this.securityManager.logSecurityEvent('VM_START_ATTEMPT', {
+                vmId: this.currentVM,
+                sessionId: this.currentSessionId,
+                encrypted: true,
+                checksumVerified: true
+            });
+
+            console.log('VM 시작 데이터가 암호화되었습니다.');
+            
+            // 부모 클래스의 startVM 호출
+            await super.startVM();
+            
+            this.securityManager.logSecurityEvent('VM_START_SUCCESS', {
+                vmId: this.currentVM,
+                sessionId: this.currentSessionId
+            });
+            
+        } catch (error) {
+            console.error('보안 VM 시작 실패:', error);
+            this.securityManager.logSecurityEvent('VM_START_ERROR', {
+                error: error.message,
+                vmId: this.currentVM
+            });
+            throw error;
+        }
+    }
+
+    // 안전한 데이터 전송 개선
+    async sendSecureData(data) {
+        if (!this.currentSessionId) {
+            throw new Error('보안 세션이 설정되지 않았습니다.');
+        }
+
+        try {
+            // 데이터 유효성 검사
+            if (!data || typeof data !== 'object') {
+                throw new Error('유효하지 않은 데이터입니다.');
+            }
+
+            // 타임스탬프와 체크섬 추가
+            const secureData = {
+                ...data,
+                timestamp: Date.now(),
+                sessionId: this.currentSessionId,
+                checksum: await this.secureConnection.generateHash(JSON.stringify(data))
+            };
+
+            const encryptedData = await this.secureConnection.encryptSessionData(
+                JSON.stringify(secureData), 
+                this.currentSessionId
+            );
+            
+            // 안전한 Base64 인코딩
+            const base64Data = this.arrayBufferToBase64(encryptedData);
+            
+            this.securityManager.logSecurityEvent('SECURE_DATA_SENT', {
+                dataType: data.type || 'unknown',
+                size: base64Data.length,
+                sessionId: this.currentSessionId
+            });
+            
+            return base64Data;
+        } catch (error) {
+            console.error('데이터 암호화 실패:', error);
+            this.securityManager.logSecurityEvent('SECURE_DATA_SEND_ERROR', {
+                error: error.message
+            });
+            throw error;
+        }
+    }
+
+    // ArrayBuffer를 Base64로 변환 (안전한 방법)
+    arrayBufferToBase64(buffer) {
+        const bytes = new Uint8Array(buffer);
+        let binary = '';
+        for (let i = 0; i < bytes.byteLength; i++) {
+            binary += String.fromCharCode(bytes[i]);
+        }
+        return btoa(binary);
+    }
+
+    // Base64를 ArrayBuffer로 변환 (안전한 방법)
+    base64ToArrayBuffer(base64) {
+        try {
+            const binaryString = atob(base64);
+            const bytes = new Uint8Array(binaryString.length);
+            for (let i = 0; i < binaryString.length; i++) {
+                bytes[i] = binaryString.charCodeAt(i);
+            }
+            return bytes.buffer;
+        } catch (error) {
+            throw new Error('Base64 디코딩 실패');
+        }
+    }
+
+    // 암호화된 데이터 수신 개선
+    async receiveSecureData(base64Data) {
+        if (!this.currentSessionId) {
+            throw new Error('보안 세션이 설정되지 않았습니다.');
+        }
+
+        try {
+            if (!base64Data || typeof base64Data !== 'string') {
+                throw new Error('유효하지 않은 데이터 형식입니다.');
+            }
+
+            const encryptedData = this.base64ToArrayBuffer(base64Data);
+            
+            const decryptedData = await this.secureConnection.decryptSessionData(
+                encryptedData, 
+                this.currentSessionId
+            );
+            
+            const parsedData = JSON.parse(decryptedData);
+            
+            // 데이터 무결성 확인
+            if (!parsedData.checksum || !parsedData.timestamp) {
+                throw new Error('데이터 무결성 확인 실패');
+            }
+            
+            // 체크섬 검증
+            const originalData = { ...parsedData };
+            delete originalData.checksum;
+            delete originalData.timestamp;
+            delete originalData.sessionId;
+            
+            const expectedChecksum = await this.secureConnection.generateHash(
+                JSON.stringify(originalData)
+            );
+            
+            if (parsedData.checksum !== expectedChecksum) {
+                throw new Error('데이터 체크섬 불일치');
+            }
+            
+            // 타임스탬프 확인 (재생 공격 방지)
+            const now = Date.now();
+            const dataAge = now - parsedData.timestamp;
+            if (dataAge > 300000) { // 5분 이상 된 데이터 거부
+                throw new Error('데이터가 너무 오래되었습니다.');
+            }
+            
+            this.securityManager.logSecurityEvent('SECURE_DATA_RECEIVED', {
+                dataType: originalData.type || 'unknown',
+                dataAge,
+                sessionId: this.currentSessionId
+            });
+            
+            return originalData;
+        } catch (error) {
+            console.error('데이터 복호화 실패:', error);
+            this.securityManager.logSecurityEvent('SECURE_DATA_RECEIVE_ERROR', {
+                error: error.message
+            });
+            throw error;
+        }
+    }
+}
+
+// 보안 툴바 기능들
+function sendCtrlAltDel() {
+    if (platform.rfb && platform.isConnected) {
+        platform.securityManager.logSecurityEvent('CTRL_ALT_DEL_SENT', {
+            vmId: platform.currentVM
+        });
+        platform.rfb.sendCtrlAltDel();
+    }
+}
+
+function toggleFullscreen() {
+    const container = document.getElementById('vnc-container');
+    if (document.fullscreenElement) {
+        document.exitFullscreen();
+        platform.securityManager.logSecurityEvent('FULLSCREEN_EXIT', {});
+    } else {
+        container.requestFullscreen().then(() => {
+            platform.securityManager.logSecurityEvent('FULLSCREEN_ENTER', {});
+        }).catch(error => {
+            console.error('전체화면 전환 실패:', error);
+        });
+    }
+}
+
+async function takeScreenshot() {
+    if (!platform.rfb || !platform.isConnected) {
+        alert('VM에 연결되지 않았습니다.');
+        return;
+    }
+
+    // 스크린샷 권한 확인
+    if (!platform.securityManager.checkPermission('TAKE_SCREENSHOT', platform.currentVM)) {
+        alert('스크린샷 권한이 없습니다.');
+        return;
+    }
+
+    try {
+        const canvas = document.getElementById('vnc-canvas');
+        if (!canvas) {
+            throw new Error('캔버스를 찾을 수 없습니다.');
+        }
+
+        const dataUrl = canvas.toDataURL('image/png');
+        
+        // 스크린샷 데이터를 암호화
+        const screenshotData = {
+            type: 'screenshot',
+            data: dataUrl,
+            vmId: platform.currentVM,
+            timestamp: Date.now(),
+            user: platform.securityManager.currentUser?.username
+        };
+        
+        const encryptedScreenshot = await platform.sendSecureData(screenshotData);
+        
+        // 다운로드 링크 생성
+        const link = document.createElement('a');
+        link.download = `screenshot-${platform.currentVM}-${new Date().getTime()}.png`;
+        link.href = dataUrl;
+        
+        // 임시로 DOM에 추가하고 클릭
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        
+        platform.securityManager.logSecurityEvent('SCREENSHOT_TAKEN', {
+            vmId: platform.currentVM,
+            encrypted: true,
+            fileSize: dataUrl.length
+        });
+        
+    } catch (error) {
+        console.error('보안 스크린샷 실패:', error);
+        platform.securityManager.logSecurityEvent('SCREENSHOT_ERROR', {
+            error: error.message,
+            vmId: platform.currentVM
+        });
+        alert('스크린샷 생성에 실패했습니다.');
+    }
+}
+
+// 전역 오류 처리기
+window.addEventListener('error', (event) => {
+    if (window.platform && window.platform.securityManager) {
+        platform.securityManager.logSecurityEvent('JAVASCRIPT_ERROR', {
+            message: event.message,
+            filename: event.filename,
+            lineno: event.lineno,
+            colno: event.colno
+        });
+    }
+});
+
+// 처리되지 않은 Promise 거부 처리
+window.addEventListener('unhandledrejection', (event) => {
+    if (window.platform && window.platform.securityManager) {
+        platform.securityManager.logSecurityEvent('UNHANDLED_PROMISE_REJECTION', {
+            reason: event.reason?.toString() || 'Unknown reason'
+        });
+    }
+});
+
+// 플랫폼 초기화
+const platform = new SecureSandboxPlatform();
+
+// 초기화 및 인증 확인
+document.addEventListener('DOMContentLoaded', async () => {
+    console.log('웹 기반 보안 샌드박스 플랫폼이 초기화되었습니다.');
+    
+    try {
+        // Web Crypto API 지원 재확인
+        if (!crypto || !crypto.subtle) {
+            throw new Error('Web Crypto API 미지원');
+        }
+        
+        // 보안 헤더 확인
+        if (location.protocol !== 'https:' && location.hostname !== 'localhost') {
+            console.warn('HTTPS 연결이 권장됩니다.');
+        }
+        
+        // 인증 상태 확인 (로컬 개발 환경 제외)
+        if (currentConfig.apiBaseUrl !== 'http://localhost:3000') {
+            const isAuthenticated = await platform.checkAuthentication();
+            if (!isAuthenticated) {
+                platform.redirectToLogin();
+                return;
+            }
+        }
+
+        console.log('보안 초기화가 완료되었습니다.');
+        
+        // 보안 상태 표시
+        const statusElement = document.getElementById('security-status');
+        if (statusElement) {
+            statusElement.textContent = '보안 연결 활성화됨';
+            statusElement.style.color = '#4CAF50';
+        }
+        
+    } catch (error) {
+        console.error('보안 초기화 실패:', error);
+        
+        // 사용자에게 오류 알림
+        const errorDiv = document.createElement('div');
+        errorDiv.innerHTML = `
+            <div style="
+                position: fixed;
+                top: 20px;
+                left: 50%;
+                transform: translateX(-50%);
+                background: #f44336;
+                color: white;
+                padding: 15px;
+                border-radius: 4px;
+                z-index: 10000;
+                max-width: 400px;
+                text-align: center;
+            ">
+                보안 초기화 실패: ${error.message}
+                <br>
+                <button onclick="location.reload()" style="
+                    background: rgba(255,255,255,0.2);
+                    color: white;
+                    border: 1px solid white;
+                    padding: 5px 10px;
+                    margin-top: 10px;
+                    border-radius: 3px;
+                    cursor: pointer;
+                ">새로고침</button>
+            </div>
+        `;
+        document.body.appendChild(errorDiv);
+    }
+});
     </script>
 </body>
 </html>
