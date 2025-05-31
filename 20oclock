@@ -1,6 +1,11 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
+    <!-- simple-keyboard CSS -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/simple-keyboard@latest/build/css/index.css">
+    <!-- simple-keyboard JS -->
+    <script src="https://cdn.jsdelivr.net/npm/simple-keyboard@latest/build/index.js"></script>
+
     <script src="https://cdnjs.cloudflare.com/ajax/libs/novnc/1.3.0/core/util.js"></script>
     <script src="https://unpkg.com/@novnc/novnc/lib/rfb.js"></script>
     
