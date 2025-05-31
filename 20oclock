@@ -470,11 +470,19 @@
                 </div>
             </div>
 
-            <div class="toolbar" id="toolbar" style="display: none;">
-                <button class="toolbar-btn" onclick="sendCtrlAltDel()">Ctrl+Alt+Del</button>
-                <button class="toolbar-btn" onclick="toggleFullscreen()">전체화면</button>
-                <button class="toolbar-btn" onclick="takeScreenshot()">스크린샷</button>
-                <button class="toolbar-btn" onclick="showKeyboard()">가상키보드</button>
+            <div class="toolbar" id="toolbar">
+                <button class="toolbar-btn" onclick="toggleFullscreen()">
+                    🔲 전체화면
+                </button>
+                <button class="toolbar-btn" onclick="takeScreenshot()">
+                    📷 스크린샷
+                </button>
+                <button class="toolbar-btn" onclick="showKeyboard()">
+                    ⌨️ 가상키보드
+                </button>
+                <button class="toolbar-btn" onclick="resetView()">
+                    🔄 화면 재설정
+                </button>
             </div>
             // simple-keyboard 초기화 코드
             const Keyboard = window.SimpleKeyboard.default;
