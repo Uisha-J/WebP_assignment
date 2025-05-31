@@ -567,8 +567,9 @@
         const currentConfig = CONFIG[window.ENV?.NODE_ENV || 'development'];
 
         function showKeyboard() {
-            alert('가상키보드 기능은 구현 예정입니다.');
-        }
+              document.getElementById("keyboard").style.display = "block";
+              document.getElementById("virtual-input").style.display = "block";
+            }
         function addChar(c) {
           const input = document.getElementById('virtual-input');
           input.value += c;
