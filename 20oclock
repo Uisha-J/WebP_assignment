@@ -403,7 +403,10 @@
                 <button class="toolbar-btn" onclick="takeScreenshot()">스크린샷</button>
                 <button class="toolbar-btn" onclick="showKeyboard()">가상키보드</button>
             </div>
-        </div>
+            <!-- 툴바 아래에 입력창과 키보드 컨테이너 추가 -->
+            <input id="virtual-input" class="input" readonly style="width:300px;font-size:1.2rem; margin-top:10px; display:none;" />
+            <div id="keyboard" style="display:none;"></div>
+                    </div>
     </div>
 
     <script>
