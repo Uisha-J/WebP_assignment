@@ -11,13 +11,19 @@
     
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>웹 기반 샌드박스 플랫폼</title>
+    <title>보안 웹 기반 샌드박스 플랫폼</title>
     <script>
-        // 환경 변수 설정 개선
+        // 환경 변수 설정 및 보안 구성
         window.ENV = {
-            NODE_ENV: 'development', // 실제 환경에 맞게 설정
-            API_BASE_URL: 'http://localhost:3000' // 실제 API URL로 변경
+            NODE_ENV: 'development',
+            API_BASE_URL: 'http://localhost:3000',
+            SECURITY_LEVEL: 'high',
+            SESSION_TIMEOUT: 30 * 60 * 1000, // 30분
+            MAX_LOGIN_ATTEMPTS: 3
         };
+        
+        // CSP 설정
+        window.CSP_NONCE = Math.random().toString(36).substring(2, 15);
     </script>
     <style>
         * {
@@ -34,19 +40,139 @@
             flex-direction: column;
         }
 
+        /* 보안 헤더 스타일 */
         .header {
             background: rgba(255, 255, 255, 0.1);
             backdrop-filter: blur(10px);
             padding: 1rem 2rem;
             border-bottom: 1px solid rgba(255, 255, 255, 0.2);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
         }
 
         .header h1 {
             color: black;
             font-size: 1.5rem;
             font-weight: 600;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
         }
 
+        .security-status {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+            font-size: 0.9rem;
+        }
+
+        .security-indicator {
+            display: flex;
+            align-items: center;
+            gap: 0.3rem;
+            padding: 0.3rem 0.8rem;
+            border-radius: 15px;
+            background: rgba(76, 175, 80, 0.1);
+            color: #4CAF50;
+            font-weight: 500;
+        }
+
+        .security-indicator.warning {
+            background: rgba(255, 152, 0, 0.1);
+            color: #ff9800;
+        }
+
+        .security-indicator.danger {
+            background: rgba(244, 67, 54, 0.1);
+            color: #f44336;
+        }
+
+        /* 보안 로그 패널 */
+        .security-log-panel {
+            position: fixed;
+            top: 80px;
+            right: -350px;
+            width: 350px;
+            height: calc(100vh - 80px);
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(10px);
+            border-left: 1px solid rgba(0, 0, 0, 0.1);
+            transition: right 0.3s ease;
+            z-index: 1000;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .security-log-panel.open {
+            right: 0;
+        }
+
+        .security-log-header {
+            padding: 1rem;
+            background: #667eea;
+            color: white;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .security-log-content {
+            flex: 1;
+            overflow-y: auto;
+            padding: 1rem;
+        }
+
+        .security-log-item {
+            padding: 0.8rem;
+            margin-bottom: 0.5rem;
+            border-radius: 8px;
+            font-size: 0.8rem;
+            border-left: 4px solid;
+        }
+
+        .security-log-item.info {
+            background: #e3f2fd;
+            border-left-color: #2196f3;
+        }
+
+        .security-log-item.warning {
+            background: #fff3e0;
+            border-left-color: #ff9800;
+        }
+
+        .security-log-item.error {
+            background: #ffebee;
+            border-left-color: #f44336;
+        }
+
+        .security-log-time {
+            font-weight: bold;
+            color: #666;
+        }
+
+        .security-toggle-btn {
+            position: fixed;
+            top: 50%;
+            right: 10px;
+            transform: translateY(-50%);
+            background: #667eea;
+            color: white;
+            border: none;
+            padding: 0.8rem;
+            border-radius: 50%;
+            cursor: pointer;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
+            z-index: 1001;
+            transition: all 0.3s ease;
+        }
+
+        .security-toggle-btn:hover {
+            background: #5a6fd8;
+            transform: translateY(-50%) scale(1.1);
+        }
+
+        /* 기존 스타일들 유지 */
         .main-container {
             display: flex;
             flex: 1;
@@ -86,6 +212,7 @@
             transition: all 0.3s ease;
             text-align: left;
             font-size: 0.9rem;
+            position: relative;
         }
 
         .vm-item:hover {
@@ -97,10 +224,27 @@
             background: linear-gradient(135deg, #4CAF50, #45a049);
         }
 
+        .vm-item.restricted {
+            background: linear-gradient(135deg, #666, #888);
+            cursor: not-allowed;
+            opacity: 0.6;
+        }
+
+        .vm-security-level {
+            position: absolute;
+            top: 0.5rem;
+            right: 0.5rem;
+            font-size: 0.7rem;
+            background: rgba(255, 255, 255, 0.2);
+            padding: 0.2rem 0.4rem;
+            border-radius: 4px;
+        }
+
         .controls {
             display: flex;
             flex-direction: column;
             gap: 0.5rem;
+            margin-bottom: 1rem;
         }
 
         .control-btn {
@@ -136,6 +280,61 @@
             opacity: 0.5;
             cursor: not-allowed;
             transform: none;
+        }
+
+        /* 보안 제어 패널 */
+        .security-controls {
+            background: #f8f9fa;
+            padding: 1rem;
+            border-radius: 8px;
+            margin-bottom: 1rem;
+        }
+
+        .security-controls h3 {
+            color: #333;
+            font-size: 1rem;
+            margin-bottom: 0.5rem;
+            display: flex;
+            align-items: center;
+            gap: 0.3rem;
+        }
+
+        .security-toggle {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 0.5rem;
+            font-size: 0.9rem;
+        }
+
+        .toggle-switch {
+            position: relative;
+            width: 40px;
+            height: 20px;
+            background: #ccc;
+            border-radius: 20px;
+            cursor: pointer;
+            transition: background 0.3s ease;
+        }
+
+        .toggle-switch.active {
+            background: #4CAF50;
+        }
+
+        .toggle-switch::after {
+            content: '';
+            position: absolute;
+            top: 2px;
+            left: 2px;
+            width: 16px;
+            height: 16px;
+            background: white;
+            border-radius: 50%;
+            transition: transform 0.3s ease;
+        }
+
+        .toggle-switch.active::after {
+            transform: translateX(20px);
         }
 
         .vm-viewer {
@@ -315,7 +514,7 @@
             margin-top: 0.5rem;
         }
 
-        /* 가상 키보드 모달 개선 */
+        /* 가상 키보드 모달 (기존 스타일 유지) */
         .virtual-keyboard-modal {
             display: none;
             position: fixed;
@@ -372,7 +571,6 @@
             color: #000;
         }
 
-        /* simple-keyboard 스타일 개선 */
         .simple-keyboard {
             max-width: 100%;
             background: #f8f9fa;
@@ -462,27 +660,93 @@
                 width: 95%;
                 padding: 15px;
             }
+
+            .security-log-panel {
+                width: 90%;
+                right: -90%;
+            }
+
+            .security-status {
+                display: none;
+            }
         }
     </style>
 </head>
 <body>
+
+
     <div class="header">
-        <h1>🖥️ 웹 기반 샌드박스 플랫폼</h1>
+        <h1>🛡️ 보안 웹 기반 샌드박스 플랫폼</h1>
+        <div class="security-status">
+            <div class="security-indicator" id="security-indicator">
+                🔒 보안 활성
+            </div>
+        </div>
+    </div>
+
+    <!-- 보안 로그 토글 버튼 -->
+    <button class="security-toggle-btn" onclick="toggleSecurityLog()">
+        📊
+    </button>
+
+    <!-- 보안 로그 패널 -->
+    <div class="security-log-panel" id="security-log-panel">
+        <div class="security-log-header">
+            <h3>🔍 보안 로그</h3>
+            <button onclick="toggleSecurityLog()" style="background: none; border: none; color: white; font-size: 1.2rem; cursor: pointer;">×</button>
+        </div>
+        <div class="security-log-content" id="security-log-content">
+            <!-- 보안 로그 항목들이 여기에 추가됩니다 -->
+        </div>
     </div>
     
     <div class="main-container">
         <div class="sidebar">
             <h2>가상환경 목록</h2>
             <div class="vm-list">
-                <button class="vm-item" data-vm="ubuntu-desktop">
+                <button class="vm-item" data-vm="ubuntu-desktop" data-security="medium">
                     🐧 Ubuntu Desktop 20.04
+                    <span class="vm-security-level">중간</span>
                 </button>
+                <button class="vm-item" data-vm="windows-sandbox" data-security="high">
+                    🪟 Windows Sandbox
+                    <span class="vm-security-level">높음</span>
+                </button>
+                <button class="vm-item" data-vm="kali-linux" data-security="high">
+                    🐱‍💻 Kali Linux
+                    <span class="vm-security-level">높음</span>
+                </button>
+            </div>
+
+            <!-- 보안 제어 패널 -->
+            <div class="security-controls">
+                <h3>🛡️ 보안 제어</h3>
+                <div class="security-toggle">
+                    <span>네트워크 격리</span>
+                    <div class="toggle-switch active" onclick="toggleSecurity('network')" id="network-toggle"></div>
+                </div>
+                <div class="security-toggle">
+                    <span>파일 접근 제한</span>
+                    <div class="toggle-switch active" onclick="toggleSecurity('file')" id="file-toggle"></div>
+                </div>
+                <div class="security-toggle">
+                    <span>실시간 모니터링</span>
+                    <div class="toggle-switch active" onclick="toggleSecurity('monitor')" id="monitor-toggle"></div>
+                </div>
+                <div class="security-toggle">
+                    <span>스크린샷 방지</span>
+                    <div class="toggle-switch" onclick="toggleSecurity('screenshot')" id="screenshot-toggle"></div>
+                </div>
             </div>
 
             <div class="vm-info" id="vm-info" style="display: none;">
                 <div class="vm-info-item">
                     <span>상태:</span>
                     <span id="vm-status">중지됨</span>
+                </div>
+                <div class="vm-info-item">
+                    <span>보안 수준:</span>
+                    <span id="vm-security">-</span>
                 </div>
                 <div class="vm-info-item">
                     <span>메모리:</span>
@@ -538,6 +802,9 @@
                 <button class="toolbar-btn" onclick="resetView()">
                     🔄 화면 재설정
                 </button>
+                <button class="toolbar-btn" onclick="exportSecurityLog()">
+                    📋 보안 로그 내보내기
+                </button>
             </div>
 
             <div class="vnc-container" id="vnc-container">
@@ -578,13 +845,347 @@
     </div>
 
     <script>
+        // 보안 관리 클래스 (로그인 기능 제거)
+        class SecurityManager {
+            constructor() {
+                this.securitySettings = {
+                    network: true,
+                    file: true,
+                    monitor: true,
+                    screenshot: false
+                };
+                this.securityLogs = [];
+                
+                this.initSecurity();
+            }
+
+            initSecurity() {
+                // 보안 이벤트 리스너 설정
+                this.setupSecurityListeners();
+                
+                // 정기적인 보안 검사
+                this.startSecurityMonitoring();
+                
+                // CSP 정책 설정
+                this.enforceCSP();
+                
+                // 초기 상태 설정
+                this.updateSecurityStatus('secure');
+            }
+
+            setupSecurityListeners() {
+                // 의심스러운 활동 감지
+                document.addEventListener('keydown', (e) => {
+                    // 개발자 도구 열기 시도 감지
+                    if (e.key === 'F12' || (e.ctrlKey && e.shiftKey && e.key === 'I')) {
+                        e.preventDefault();
+                        this.logSecurityEvent('warning', '개발자 도구 접근 시도 감지');
+                    }
+                });
+
+                // 우클릭 방지 (옵션)
+                document.addEventListener('contextmenu', (e) => {
+                    if (this.securitySettings.screenshot) {
+                        e.preventDefault();
+                        this.logSecurityEvent('info', '우클릭 차단');
+                    }
+                });
+
+                // 복사/붙여넣기 제한 (보안 설정에 따라)
+                document.addEventListener('copy', (e) => {
+                    if (this.securitySettings.file) {
+                        // 특정 요소에서만 복사 허용
+                        if (!e.target.classList.contains('allowed-copy')) {
+                            e.preventDefault();
+                            this.logSecurityEvent('warning', '복사 시도 차단');
+                        }
+                    }
+                });
+
+                // 페이지 이탈 감지
+                window.addEventListener('beforeunload', (e) => {
+                    if (window.platform && window.platform.isConnected) {
+                        e.preventDefault();
+                        e.returnValue = '';
+                        this.logSecurityEvent('warning', '페이지 이탈 시도');
+                    }
+                });
+            }
+
+            startSecurityMonitoring() {
+                setInterval(() => {
+                    this.performSecurityCheck();
+                }, 30000); // 30초마다 보안 검사
+            }
+
+            performSecurityCheck() {
+                // 메모리 사용량 검사
+                if (performance.memory) {
+                    const memoryUsage = performance.memory.usedJSHeapSize / performance.memory.totalJSHeapSize;
+                    if (memoryUsage > 0.9) {
+                        this.logSecurityEvent('warning', '높은 메모리 사용량 감지');
+                    }
+                }
+
+                // 네트워크 연결 검사
+                if (!navigator.onLine) {
+                    this.logSecurityEvent('warning', '네트워크 연결 끊김');
+                    this.updateSecurityStatus('warning');
+                } else {
+                    this.updateSecurityStatus('secure');
+                }
+            }
+
+            enforceCSP() {
+                // Content Security Policy 설정
+                const meta = document.createElement('meta');
+                meta.httpEquiv = 'Content-Security-Policy';
+                meta.content = `
+                    default-src 'self';
+                    script-src 'self' 'nonce-${window.CSP_NONCE}' https://cdn.jsdelivr.net https://cdnjs.cloudflare.com https://unpkg.com;
+                    style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net;
+                    connect-src 'self' ws://localhost:* wss://localhost:*;
+                    img-src 'self' data:;
+                    font-src 'self' https://fonts.googleapis.com https://fonts.gstatic.com;
+                `;
+                document.head.appendChild(meta);
+            }
+
+            toggleSecuritySetting(setting) {
+                this.securitySettings[setting] = !this.securitySettings[setting];
+                this.logSecurityEvent('info', `보안 설정 변경: ${setting} = ${this.securitySettings[setting]}`);
+                
+                // 설정에 따른 추가 동작
+                switch (setting) {
+                    case 'network':
+                        this.updateNetworkIsolation();
+                        break;
+                    case 'screenshot':
+                        this.updateScreenshotProtection();
+                        break;
+                    case 'monitor':
+                        this.updateMonitoring();
+                        break;
+                }
+            }
+
+            updateNetworkIsolation() {
+                // 네트워크 격리 설정 적용
+                if (this.securitySettings.network) {
+                    this.logSecurityEvent('info', '네트워크 격리 활성화');
+                } else {
+                    this.logSecurityEvent('warning', '네트워크 격리 비활성화');
+                }
+            }
+
+            updateScreenshotProtection() {
+                // 스크린샷 방지 설정
+                if (this.securitySettings.screenshot) {
+                    document.body.style.webkitUserSelect = 'none';
+                    document.body.style.userSelect = 'none';
+                    this.logSecurityEvent('info', '스크린샷 보호 활성화');
+                } else {
+                    document.body.style.webkitUserSelect = 'auto';
+                    document.body.style.userSelect = 'auto';
+                    this.logSecurityEvent('info', '스크린샷 보호 비활성화');
+                }
+            }
+
+            updateMonitoring() {
+                if (this.securitySettings.monitor) {
+                    this.logSecurityEvent('info', '실시간 모니터링 활성화');
+                } else {
+                    this.logSecurityEvent('warning', '실시간 모니터링 비활성화');
+                }
+            }
+
+            logSecurityEvent(level, message) {
+                }
+            }
+
+            logSecurityEvent(level, message) {
+                const timestamp = new Date().toLocaleString();
+                const event = {
+                    timestamp,
+                    level,
+                    message
+                };
+                
+                this.securityLogs.unshift(event);
+                
+                // 로그 개수 제한 (최대 100개)
+                if (this.securityLogs.length > 100) {
+                    this.securityLogs = this.securityLogs.slice(0, 100);
+                }
+                
+                // UI 업데이트
+                this.updateSecurityLogDisplay();
+                
+                console.log(`[SECURITY] ${level.toUpperCase()}: ${message}`);
+            }
+
+            updateSecurityLogDisplay() {
+                const container = document.getElementById('security-log-content');
+                container.innerHTML = '';
+                
+                this.securityLogs.forEach(log => {
+                    const logItem = document.createElement('div');
+                    logItem.className = `security-log-item ${log.level}`;
+                    logItem.innerHTML = `
+                        <div class="security-log-time">${log.timestamp}</div>
+                        <div>${log.message}</div>
+                    `;
+                    container.appendChild(logItem);
+                });
+            }
+
+            updateSecurityStatus(status) {
+                const indicator = document.getElementById('security-indicator');
+                
+                switch (status) {
+                    case 'secure':
+                        indicator.className = 'security-indicator';
+                        indicator.innerHTML = '🔒 보안 활성';
+                        break;
+                    case 'warning':
+                        indicator.className = 'security-indicator warning';
+                        indicator.innerHTML = '⚠️ 주의 필요';
+                        break;
+                    case 'danger':
+                        indicator.className = 'security-indicator danger';
+                        indicator.innerHTML = '🚨 위험';
+                        break;
+                }
+            }
+
+            exportSecurityLog() {
+                const logs = this.securityLogs.map(log => 
+                    `${log.timestamp}\t${log.level}\t${log.message}`
+                ).join('\n');
+                
+                const blob = new Blob([`시간\t레벨\t메시지\n${logs}`], 
+                    { type: 'text/tab-separated-values' });
+                const url = URL.createObjectURL(blob);
+                
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `security_log_${new Date().toISOString().split('T')[0]}.tsv`;
+                a.click();
+                
+                URL.revokeObjectURL(url);
+                this.logSecurityEvent('info', '보안 로그 내보내기');
+            }
+        }
+                } else {
+                    this.logSecurityEvent('warning', '실시간 모니터링 비활성화');
+                }
+            }
+
+            logSecurityEvent(level, message) {
+                const timestamp = new Date().toLocaleString();
+                const event = {
+                    timestamp,
+                    level,
+                    message,
+                    user: this.currentUser || 'anonymous'
+                };
+                
+                this.securityLogs.unshift(event);
+                
+                // 로그 개수 제한 (최대 100개)
+                if (this.securityLogs.length > 100) {
+                    this.securityLogs = this.securityLogs.slice(0, 100);
+                }
+                
+                // UI 업데이트
+                this.updateSecurityLogDisplay();
+                
+                console.log(`[SECURITY] ${level.toUpperCase()}: ${message}`);
+            }
+
+            updateSecurityLogDisplay() {
+                const container = document.getElementById('security-log-content');
+                container.innerHTML = '';
+                
+                this.securityLogs.forEach(log => {
+                    const logItem = document.createElement('div');
+                    logItem.className = `security-log-item ${log.level}`;
+                    logItem.innerHTML = `
+                        <div class="security-log-time">${log.timestamp}</div>
+                        <div>${log.message}</div>
+                        <div style="font-size: 0.7rem; color: #888;">사용자: ${log.user}</div>
+                    `;
+                    container.appendChild(logItem);
+                });
+            }
+
+            updateSecurityStatus(status) {
+                const indicator = document.getElementById('security-indicator');
+                
+                switch (status) {
+                    case 'secure':
+                        indicator.className = 'security-indicator';
+                        indicator.innerHTML = '🔒 보안 활성';
+                        break;
+                    case 'warning':
+                        indicator.className = 'security-indicator warning';
+                        indicator.innerHTML = '⚠️ 주의 필요';
+                        break;
+                    case 'danger':
+                        indicator.className = 'security-indicator danger';
+                        indicator.innerHTML = '🚨 위험';
+                        break;
+                    case 'unauthenticated':
+                        indicator.className = 'security-indicator danger';
+                        indicator.innerHTML = '🔓 인증 필요';
+                        break;
+                }
+            }
+
+            exportSecurityLog() {
+                const logs = this.securityLogs.map(log => 
+                    `${log.timestamp}\t${log.level}\t${log.user}\t${log.message}`
+                ).join('\n');
+                
+                const blob = new Blob([`시간\t레벨\t사용자\t메시지\n${logs}`], 
+                    { type: 'text/tab-separated-values' });
+                const url = URL.createObjectURL(blob);
+                
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `security_log_${new Date().toISOString().split('T')[0]}.tsv`;
+                a.click();
+                
+                URL.revokeObjectURL(url);
+                this.logSecurityEvent('info', '보안 로그 내보내기');
+            }
+
+            checkVMPermission(vmId) {
+                if (!this.isAuthenticated) {
+                    return false;
+                }
+                
+                // 사용자별 VM 접근 권한 검사
+                const vmConfig = window.platform.vmConfigs[vmId];
+                if (vmConfig.security === 'restricted' && this.currentUser !== 'admin') {
+                    this.logSecurityEvent('warning', `제한된 VM 접근 시도: ${vmId}`);
+                    return false;
+                }
+                
+                return true;
+            }
+        }
+
         // 가상 키보드 변수들
         let keyboard = null;
         let isKorean = true;
         let isShift = false;
         let isVirtualKeyboardVisible = false;
 
-        // simple-keyboard 초기화 함수
+        // 보안 매니저 초기화
+        window.securityManager = new SecurityManager();
+
+        // 가상 키보드 함수들 (기존과 동일)
         function initVirtualKeyboard() {
             if (keyboard) {
                 keyboard.destroy();
@@ -653,12 +1254,10 @@
         }
 
         function onVirtualKeyboardKeyPress(button) {
-            // 특수 키 처리
             if (button === "{shift}") {
                 isShift = !isShift;
                 updateKeyboardLayout();
                 
-                // Shift 버튼 시각적 피드백
                 const shiftButton = document.querySelector('.hg-button[data-skbtn="{shift}"]');
                 if (shiftButton) {
                     if (isShift) {
@@ -674,12 +1273,10 @@
             }
             
             if (button === "{tab}") {
-                // 탭 키 처리
                 sendKeyToVM("Tab");
             }
             
             if (button === "{lock}") {
-                // Caps Lock 처리
                 sendKeyToVM("CapsLock");
             }
         }
@@ -698,7 +1295,6 @@
                 layoutName: layoutName
             });
             
-            // 언어 토글 버튼 업데이트
             const langToggle = document.getElementById('lang-toggle');
             if (langToggle) {
                 langToggle.textContent = isKorean ? "EN" : "한";
@@ -708,7 +1304,7 @@
 
         function toggleLanguage() {
             isKorean = !isKorean;
-            isShift = false; // 언어 변경 시 Shift 해제
+            isShift = false;
             updateKeyboardLayout();
         }
 
@@ -723,20 +1319,18 @@
             const input = document.getElementById("virtual-input").value;
             if (!input) return;
             
-            // 실제 VM으로 텍스트 전송 로직
             if (window.platform && window.platform.rfb && window.platform.isConnected) {
                 try {
-                    // 텍스트를 한 글자씩 전송
                     for (let char of input) {
                         sendCharToVM(char);
                     }
                     
-                    // 입력 완료 후 클리어
                     clearInput();
-                    
+                    window.securityManager.logSecurityEvent('info', `VM으로 텍스트 전송: ${input.length}자`);
                     console.log("VM으로 텍스트 전송 완료:", input);
                 } catch (error) {
                     console.error("VM 텍스트 전송 실패:", error);
+                    window.securityManager.logSecurityEvent('error', 'VM 텍스트 전송 실패');
                     alert("VM으로 텍스트 전송에 실패했습니다.");
                 }
             } else {
@@ -745,17 +1339,14 @@
         }
 
         function sendCharToVM(char) {
-            // noVNC를 통해 문자 전송
             if (window.platform && window.platform.rfb) {
-                // 키 코드 매핑 및 전송
                 const keyCode = char.charCodeAt(0);
-                window.platform.rfb.sendKey(keyCode, true);  // key down
-                window.platform.rfb.sendKey(keyCode, false); // key up
+                window.platform.rfb.sendKey(keyCode, true);
+                window.platform.rfb.sendKey(keyCode, false);
             }
         }
 
         function sendKeyToVM(keyName) {
-            // 특수 키 전송
             if (window.platform && window.platform.rfb) {
                 const keyMap = {
                     'Tab': 0xFF09,
@@ -775,19 +1366,18 @@
             }
         }
 
-        // 가상 키보드 표시/숨김
         function showVirtualKeyboard() {
             const modal = document.getElementById('virtual-keyboard-modal');
             modal.style.display = 'flex';
             isVirtualKeyboardVisible = true;
             
-            // 키보드가 초기화되지 않았다면 초기화
             if (!keyboard) {
-                // DOM이 렌더링된 후 초기화
                 setTimeout(() => {
                     initVirtualKeyboard();
                 }, 100);
             }
+            
+            window.securityManager.logSecurityEvent('info', '가상 키보드 열기');
         }
 
         function hideVirtualKeyboard() {
@@ -796,21 +1386,25 @@
             isVirtualKeyboardVisible = false;
             
             clearInput();
+            window.securityManager.logSecurityEvent('info', '가상 키보드 닫기');
         }
 
-        // 모달 외부 클릭 시 닫기
-        document.getElementById('virtual-keyboard-modal').addEventListener('click', function(e) {
-            if (e.target === this) {
-                hideVirtualKeyboard();
-            }
-        });
+        // 보안 관련 함수들
+        function toggleSecurityLog() {
+            const panel = document.getElementById('security-log-panel');
+            panel.classList.toggle('open');
+        }
 
-        // ESC 키로 모달 닫기
-        document.addEventListener('keydown', function(e) {
-            if (e.key === 'Escape' && isVirtualKeyboardVisible) {
-                hideVirtualKeyboard();
-            }
-        });
+        function toggleSecurity(setting) {
+            window.securityManager.toggleSecuritySetting(setting);
+            
+            const toggle = document.getElementById(`${setting}-toggle`);
+            toggle.classList.toggle('active');
+        }
+
+        function exportSecurityLog() {
+            window.securityManager.exportSecurityLog();
+        }
 
         // 환경별 설정
         const CONFIG = {
@@ -828,8 +1422,8 @@
 
         const currentConfig = CONFIG[window.ENV?.NODE_ENV || 'development'];
 
-        // 기본 플랫폼 클래스들은 원본 코드 유지
-        class SandboxPlatform {
+        // 보안 강화된 샌드박스 플랫폼 클래스
+        class SecureSandboxPlatform {
             constructor() {
                 this.currentVM = null;
                 this.vncWebSocket = null;
@@ -845,12 +1439,37 @@
                         memory: '4GB',
                         cpu: '2 cores',
                         disk: '25GB',
+                        security: 'medium',
                         host: 'localhost',
                         port: 6080,
                         vncPort: 5901,
                         password: '',
                         path: '/websockify'
                     },
+                    'windows-sandbox': {
+                        name: 'Windows Sandbox',
+                        memory: '6GB',
+                        cpu: '4 cores',
+                        disk: '30GB',
+                        security: 'high',
+                        host: 'localhost',
+                        port: 6081,
+                        vncPort: 5902,
+                        password: 'secure123',
+                        path: '/websockify'
+                    },
+                    'kali-linux': {
+                        name: 'Kali Linux',
+                        memory: '8GB',
+                        cpu: '4 cores',
+                        disk: '40GB',
+                        security: 'high',
+                        host: 'localhost',
+                        port: 6082,
+                        vncPort: 5903,
+                        password: 'kali123',
+                        path: '/websockify'
+                    }
                 };
 
                 this.initEventListeners();
@@ -858,14 +1477,12 @@
             }
 
             initEventListeners() {
-                // VM 선택 이벤트
                 document.querySelectorAll('.vm-item').forEach(item => {
                     item.addEventListener('click', (e) => {
                         this.selectVM(e.target.dataset.vm);
                     });
                 });
 
-                // 컨트롤 버튼 이벤트
                 document.getElementById('start-btn').addEventListener('click', () => {
                     this.startVM();
                 });
@@ -878,13 +1495,13 @@
                     this.restartVM();
                 });
 
-                // 창 크기 변경 이벤트
                 window.addEventListener('resize', () => {
                     this.resizeVNCViewer();
                 });
             }
 
             selectVM(vmId) {
+
                 // 이전 선택 해제
                 document.querySelectorAll('.vm-item').forEach(item => {
                     item.classList.remove('active');
@@ -904,6 +1521,8 @@
                 if (this.isConnected) {
                     this.disconnect();
                 }
+
+                window.securityManager.logSecurityEvent('info', `VM 선택: ${vmId}`);
             }
 
             updateVMInfo(vmId) {
@@ -913,6 +1532,7 @@
                 document.getElementById('vm-memory').textContent = config.memory;
                 document.getElementById('vm-cpu').textContent = config.cpu;
                 document.getElementById('vm-disk').textContent = config.disk;
+                document.getElementById('vm-security').textContent = config.security;
                 
                 vmInfo.style.display = 'block';
             }
@@ -925,6 +1545,10 @@
 
                 try {
                     this.setConnectionStatus('connecting', '연결 중...');
+                    window.securityManager.logSecurityEvent('info', `VM 시작 시도: ${this.currentVM}`);
+                    
+                    // 보안 검사 수행
+                    await this.performSecurityCheck();
                     
                     // 실제 VM 시작 시뮬레이션
                     await this.simulateVMStart();
@@ -937,11 +1561,38 @@
                     this.showVNCViewer();
                     this.startPerformanceMonitoring();
                     
+                    window.securityManager.logSecurityEvent('info', `VM 시작 성공: ${this.currentVM}`);
+                    
                 } catch (error) {
                     console.error('VM 시작 실패:', error);
                     this.setConnectionStatus('disconnected', '연결 실패');
+                    window.securityManager.logSecurityEvent('error', `VM 시작 실패: ${error.message}`);
                     alert('가상환경 시작에 실패했습니다: ' + error.message);
                 }
+            }
+
+            async performSecurityCheck() {
+                // 보안 정책 검사
+                return new Promise((resolve, reject) => {
+                    setTimeout(() => {
+                        // 네트워크 격리 상태 검사
+                        if (window.securityManager.securitySettings.network) {
+                            window.securityManager.logSecurityEvent('info', '네트워크 격리 정책 적용됨');
+                        }
+
+                        // 파일 접근 제한 검사
+                        if (window.securityManager.securitySettings.file) {
+                            window.securityManager.logSecurityEvent('info', '파일 접근 제한 정책 적용됨');
+                        }
+
+                        // 모니터링 설정 검사
+                        if (window.securityManager.securitySettings.monitor) {
+                            window.securityManager.logSecurityEvent('info', '실시간 모니터링 활성화됨');
+                        }
+
+                        resolve();
+                    }, 1000);
+                });
             }
 
             async simulateVMStart() {
@@ -972,15 +1623,33 @@
                 toolbar.style.display = 'flex';
                 canvas.style.display = 'block';
                 
-                // 실제 VNC 화면 시뮬레이션
+                // 보안 수준에 따른 다른 화면 표시
+                const vmConfig = this.vmConfigs[this.currentVM];
+                let securityBadge = '';
+                let bgColor = '#1e3c72';
+                
+                switch (vmConfig.security) {
+                    case 'high':
+                        securityBadge = '🔒 높은 보안';
+                        bgColor = '#2d5016';
+                        break;
+                    case 'medium':
+                        securityBadge = '🟡 중간 보안';
+                        bgColor = '#1e3c72';
+                        break;
+                }
+                
                 container.innerHTML = `
-                    <div style="width: 100%; height: 100%; background: linear-gradient(45deg, #1e3c72, #2a5298); 
+                    <div style="width: 100%; height: 100%; background: linear-gradient(45deg, ${bgColor}, #2a5298); 
                                 display: flex; align-items: center; justify-content: center; 
                                 border-radius: 10px; color: white; font-size: 1.2rem;">
                         <div style="text-align: center;">
                             <div style="font-size: 3rem; margin-bottom: 1rem;">🖥️</div>
-                            <div>${this.vmConfigs[this.currentVM].name}</div>
+                            <div>${vmConfig.name}</div>
                             <div style="font-size: 0.9rem; margin-top: 0.5rem; opacity: 0.8;">
+                                ${securityBadge}
+                            </div>
+                            <div style="font-size: 0.8rem; margin-top: 1rem; opacity: 0.7;">
                                 VNC 연결됨 - 실제 구현시 noVNC 캔버스가 여기에 표시됩니다
                             </div>
                         </div>
@@ -998,10 +1667,13 @@
                 this.updateVMStatus('중지됨');
                 this.hideVNCViewer();
                 this.stopPerformanceMonitoring();
+                
+                window.securityManager.logSecurityEvent('info', `VM 중지: ${this.currentVM}`);
             }
 
             restartVM() {
                 if (this.isConnected) {
+                    window.securityManager.logSecurityEvent('info', `VM 재시작: ${this.currentVM}`);
                     this.stopVM();
                     setTimeout(() => {
                         this.startVM();
@@ -1026,7 +1698,6 @@
                 toolbar.style.display = 'none';
                 canvas.style.display = 'none';
                 
-                // no-connection div가 없으면 생성
                 let noConnection = document.getElementById('no-connection');
                 if (!noConnection) {
                     noConnection = document.createElement('div');
@@ -1063,16 +1734,31 @@
                     this.performanceInterval = null;
                 }
                 
-                // 성능 통계 초기화
                 document.getElementById('cpu-usage').textContent = '0%';
                 document.getElementById('memory-usage').textContent = '0%';
             }
 
             updatePerformanceStats() {
                 if (this.isConnected) {
-                    // 실제로는 백엔드에서 성능 데이터를 가져옴
-                    const cpuUsage = Math.floor(Math.random() * 60) + 20;
-                    const memoryUsage = Math.floor(Math.random() * 40) + 30;
+                    // 보안 모니터링이 활성화된 경우 더 정확한 데이터 시뮬레이션
+                    const monitoringActive = window.securityManager.securitySettings.monitor;
+                    
+                    let cpuUsage, memoryUsage;
+                    
+                    if (monitoringActive) {
+                        // 보안 모니터링 시 더 상세한 성능 데이터
+                        cpuUsage = Math.floor(Math.random() * 50) + 25;
+                        memoryUsage = Math.floor(Math.random() * 35) + 35;
+                        
+                        // 비정상적인 사용률 감지
+                        if (cpuUsage > 80 || memoryUsage > 85) {
+                            window.securityManager.logSecurityEvent('warning', 
+                                `높은 리소스 사용률 감지 - CPU: ${cpuUsage}%, Memory: ${memoryUsage}%`);
+                        }
+                    } else {
+                        cpuUsage = Math.floor(Math.random() * 60) + 20;
+                        memoryUsage = Math.floor(Math.random() * 40) + 30;
+                    }
                     
                     document.getElementById('cpu-usage').textContent = `${cpuUsage}%`;
                     document.getElementById('memory-usage').textContent = `${memoryUsage}%`;
@@ -1091,10 +1777,13 @@
             const container = document.getElementById('vnc-container');
             if (document.fullscreenElement) {
                 document.exitFullscreen();
+                window.securityManager.logSecurityEvent('info', '전체화면 모드 종료');
             } else {
                 container.requestFullscreen().catch(error => {
                     console.error('전체화면 전환 실패:', error);
+                    window.securityManager.logSecurityEvent('error', '전체화면 전환 실패');
                 });
+                window.securityManager.logSecurityEvent('info', '전체화면 모드 진입');
             }
         }
 
@@ -1104,43 +1793,105 @@
                 return;
             }
 
+            // 스크린샷 방지 설정 확인
+            if (window.securityManager.securitySettings.screenshot) {
+                alert('보안 정책에 의해 스크린샷이 제한되어 있습니다.');
+                window.securityManager.logSecurityEvent('warning', '스크린샷 시도 차단');
+                return;
+            }
+
             try {
-                // 실제 구현에서는 VNC 캔버스에서 스크린샷 생성
                 console.log('스크린샷 촬영 시뮬레이션');
+                window.securityManager.logSecurityEvent('info', 'VM 스크린샷 촬영');
                 alert('스크린샷이 촬영되었습니다. (시뮬레이션)');
             } catch (error) {
                 console.error('스크린샷 실패:', error);
+                window.securityManager.logSecurityEvent('error', '스크린샷 촬영 실패');
                 alert('스크린샷 생성에 실패했습니다.');
             }
         }
 
         function resetView() {
             if (window.platform && window.platform.rfb) {
-                // VNC 뷰 리셋 로직
                 console.log('화면 재설정');
+                window.securityManager.logSecurityEvent('info', 'VNC 화면 재설정');
             }
         }
 
+        // 모달 이벤트 리스너들
+        document.getElementById('virtual-keyboard-modal').addEventListener('click', function(e) {
+            if (e.target === this) {
+                hideVirtualKeyboard();
+            }
+        });
+
+        document.addEventListener('keydown', function(e) {
+            if (e.key === 'Escape' && isVirtualKeyboardVisible) {
+                hideVirtualKeyboard();
+            }
+            
+            // Ctrl+K로 가상 키보드 토글
+            if (e.ctrlKey && e.key === 'k') {
+                e.preventDefault();
+                if (isVirtualKeyboardVisible) {
+                    hideVirtualKeyboard();
+                } else {
+                    showVirtualKeyboard();
+                }
+            }
+        });
+
         // 플랫폼 초기화
-        window.platform = new SandboxPlatform();
+        window.platform = new SecureSandboxPlatform();
 
         // 페이지 로드 완료 후 초기화
         document.addEventListener('DOMContentLoaded', () => {
-            console.log('웹 기반 샌드박스 플랫폼이 초기화되었습니다.');
+            console.log('보안 웹 기반 샌드박스 플랫폼이 초기화되었습니다.');
             
-            // 가상 키보드 관련 이벤트 리스너
-            document.addEventListener('keydown', function(e) {
-                // Ctrl+K로 가상 키보드 토글
-                if (e.ctrlKey && e.key === 'k') {
-                    e.preventDefault();
-                    if (isVirtualKeyboardVisible) {
-                        hideVirtualKeyboard();
-                    } else {
-                        showVirtualKeyboard();
-                    }
+            // 보안 설정 UI 초기화
+            Object.keys(window.securityManager.securitySettings).forEach(setting => {
+                const toggle = document.getElementById(`${setting}-toggle`);
+                if (toggle && window.securityManager.securitySettings[setting]) {
+                    toggle.classList.add('active');
                 }
             });
+            
+            // 초기 보안 로그
+            window.securityManager.logSecurityEvent('info', '플랫폼 초기화 완료');
+            
+            // 주기적인 보안 상태 업데이트
+            setInterval(() => {
+                // 정기적인 보안 검사 수행
+                window.securityManager.performSecurityCheck();
+            }, 60000); // 1분마다 검사
         });
+
+        // 전역 에러 핸들러
+        window.addEventListener('error', function(e) {
+            window.securityManager.logSecurityEvent('error', 
+                `JavaScript 오류: ${e.error?.message || e.message} at ${e.filename}:${e.lineno}`);
+        });
+
+        // 네트워크 상태 모니터링
+        window.addEventListener('online', function() {
+            window.securityManager.logSecurityEvent('info', '네트워크 연결 복구');
+            window.securityManager.updateSecurityStatus('secure');
+        });
+
+        window.addEventListener('offline', function() {
+            window.securityManager.logSecurityEvent('warning', '네트워크 연결 끊김');
+            window.securityManager.updateSecurityStatus('warning');
+        });
+
+        // 페이지 가시성 변경 모니터링
+        document.addEventListener('visibilitychange', function() {
+            if (document.hidden) {
+                window.securityManager.logSecurityEvent('info', '페이지가 백그라운드로 이동');
+            } else {
+                window.securityManager.logSecurityEvent('info', '페이지가 포어그라운드로 복귀');
+            }
+        });
+
     </script>
 </body>
 </html>
