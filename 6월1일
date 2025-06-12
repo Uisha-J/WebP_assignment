@@ -1,17 +1,18 @@
 <!DOCTYPE html>
 <html lang="ko">
+
 <head>
     <!-- simple-keyboard CSS -->
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/simple-keyboard@latest/build/css/index.css">
-    <!-- simple-keyboard JS -->
     <script src="https://cdn.jsdelivr.net/npm/simple-keyboard@latest/build/index.js"></script>
 
     <script src="https://cdnjs.cloudflare.com/ajax/libs/novnc/1.3.0/core/util.js"></script>
     <script src="https://unpkg.com/@novnc/novnc/lib/rfb.js"></script>
-    
+
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>웹 기반 샌드박스 플랫폼</title>
+
     <script>
         // 환경 변수 설정 개선
         window.ENV = {
@@ -195,8 +196,15 @@
         }
 
         @keyframes pulse {
-            0%, 100% { opacity: 1; }
-            50% { opacity: 0.5; }
+
+            0%,
+            100% {
+                opacity: 1;
+            }
+
+            50% {
+                opacity: 0.5;
+            }
         }
 
         .toolbar {
@@ -275,8 +283,13 @@
         }
 
         @keyframes spin {
-            0% { transform: rotate(0deg); }
-            100% { transform: rotate(360deg); }
+            0% {
+                transform: rotate(0deg);
+            }
+
+            100% {
+                transform: rotate(360deg);
+            }
         }
 
         .vm-info {
@@ -348,7 +361,7 @@
             max-width: 800px;
             max-height: 80vh;
             overflow-y: auto;
-            box-shadow: 0 4px 20px rgba(0,0,0,0.3);
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
         }
 
         .keyboard-header {
@@ -386,7 +399,7 @@
             max-width: 100%;
             background: #f8f9fa;
             border-radius: 8px;
-            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
         }
 
         .hg-button {
@@ -474,11 +487,12 @@
         }
     </style>
 </head>
+
 <body>
     <div class="header">
         <h1>🖥️ 웹 기반 샌드박스 플랫폼</h1>
     </div>
-    
+
     <div class="main-container">
         <div class="sidebar">
             <h2>가상환경 목록</h2>
@@ -562,11 +576,11 @@
                 <h3 class="keyboard-title">가상 키보드</h3>
                 <button class="close-btn" onclick="hideVirtualKeyboard()">&times;</button>
             </div>
-            
+
             <div class="virtual-input-container">
                 <input id="virtual-input" class="virtual-input" placeholder="여기에 입력하세요..." readonly />
             </div>
-            
+
             <div class="keyboard-controls">
                 <button class="keyboard-control-btn" id="lang-toggle" onclick="toggleLanguage()">
                     한/영
@@ -578,8 +592,8 @@
                     VM으로 전송
                 </button>
             </div>
-            
-            <div id="simple-keyboard-container"></div>
+
+            <div id="simple-keyboard-container" class="simple-keyboard"></div>
         </div>
     </div>
 
@@ -597,8 +611,9 @@
             }
 
             const Keyboard = window.SimpleKeyboard.default;
-            
-            keyboard = new Keyboard('#simple-keyboard-container', {
+
+            keyboard = new Keyboard({
+                rootElement: document.getElementById('simple-keyboard-container'),
                 onChange: input => onVirtualKeyboardChange(input),
                 onKeyPress: button => onVirtualKeyboardKeyPress(button),
                 layout: {
@@ -633,7 +648,7 @@
                 },
                 display: {
                     "{bksp}": "⌫ Backspace",
-                    "{enter}": "⏎ Enter", 
+                    "{enter}": "⏎ Enter",
                     "{shift}": "⇧ Shift",
                     "{space}": "Space",
                     "{tab}": "Tab",
@@ -645,7 +660,7 @@
                         buttons: "{bksp}"
                     },
                     {
-                        class: "hg-blue", 
+                        class: "hg-blue",
                         buttons: "{enter} {shift} {space} {tab} {lock}"
                     }
                 ]
@@ -658,52 +673,69 @@
             document.getElementById("virtual-input").value = input;
         }
 
+        let capslock = false; // Caps Lock 상태 변수 추가
+
         function onVirtualKeyboardKeyPress(button) {
-            // 특수 키 처리
+            // Shift 키 처리
             if (button === "{shift}") {
                 isShift = !isShift;
                 updateKeyboardLayout();
-                
+
                 // Shift 버튼 시각적 피드백
                 const shiftButton = document.querySelector('.hg-button[data-skbtn="{shift}"]');
                 if (shiftButton) {
-                    if (isShift) {
-                        shiftButton.classList.add('active');
-                    } else {
-                        shiftButton.classList.remove('active');
-                    }
+                    shiftButton.classList.toggle('active', isShift);
                 }
             }
-            
+
+            // Caps Lock 키 처리
+            if (button === "{lock}") {
+                capslock = !capslock;
+                isShift = false; // Caps Lock 누르면 Shift 해제
+                updateKeyboardLayout();
+
+                // Caps Lock 버튼 시각적 피드백
+                const capsButton = document.querySelector('.hg-button[data-skbtn="{lock}"]');
+                if (capsButton) {
+                    capsButton.classList.toggle('active', capslock);
+                }
+
+                // 필요하다면 VM에도 상태 전송
+                sendKeyToVM("CapsLock");
+            }
+
+            // Enter 키 처리
             if (button === "{enter}") {
                 sendToVM();
             }
-            
+
+            // Tab 키 처리
             if (button === "{tab}") {
-                // 탭 키 처리
                 sendKeyToVM("Tab");
             }
-            
-            if (button === "{lock}") {
-                // Caps Lock 처리
-                sendKeyToVM("CapsLock");
+
+            if (!["{shift}", "{lock}", "{enter}", "{bksp}", "{tab}"].includes(button)) {
+                if (isShift && !capslock) {
+                    isShift = false;
+                    updateKeyboardLayout();
+                }
             }
         }
 
         function updateKeyboardLayout() {
             if (!keyboard) return;
-            
+
             let layoutName;
             if (isKorean) {
-                layoutName = isShift ? "shift" : "default";
+                layoutName = (isShift || capslock) ? "shift" : "default";
             } else {
-                layoutName = isShift ? "englishShift" : "english";
+                layoutName = (isShift || capslock) ? "englishShift" : "english";
             }
-            
+
             keyboard.setOptions({
                 layoutName: layoutName
             });
-            
+
             // 언어 토글 버튼 업데이트
             const langToggle = document.getElementById('lang-toggle');
             if (langToggle) {
@@ -728,7 +760,7 @@
         function sendToVM() {
             const input = document.getElementById("virtual-input").value;
             if (!input) return;
-            
+
             // 실제 VM으로 텍스트 전송 로직
             if (window.platform && window.platform.rfb && window.platform.isConnected) {
                 try {
@@ -736,10 +768,10 @@
                     for (let char of input) {
                         sendCharToVM(char);
                     }
-                    
+
                     // 입력 완료 후 클리어
                     clearInput();
-                    
+
                     console.log("VM으로 텍스트 전송 완료:", input);
                 } catch (error) {
                     console.error("VM 텍스트 전송 실패:", error);
@@ -765,14 +797,14 @@
             if (window.platform && window.platform.rfb) {
                 const keyMap = {
                     'Tab': 0xFF09,
-                    'Enter': 0xFF0D, 
+                    'Enter': 0xFF0D,
                     'Escape': 0xFF1B,
                     'CapsLock': 0xFFE5,
                     'Shift': 0xFFE1,
                     'Control': 0xFFE3,
                     'Alt': 0xFFE9
                 };
-                
+
                 const keyCode = keyMap[keyName];
                 if (keyCode) {
                     window.platform.rfb.sendKey(keyCode, true);
@@ -786,13 +818,13 @@
             const modal = document.getElementById('virtual-keyboard-modal');
             modal.style.display = 'flex';
             isVirtualKeyboardVisible = true;
-            
+
             // 키보드가 초기화되지 않았다면 초기화
             if (!keyboard) {
                 // DOM이 렌더링된 후 초기화
                 setTimeout(() => {
                     initVirtualKeyboard();
-                }, 100);
+                }, 200);
             }
         }
 
@@ -800,19 +832,22 @@
             const modal = document.getElementById('virtual-keyboard-modal');
             modal.style.display = 'none';
             isVirtualKeyboardVisible = false;
-            
+
             clearInput();
         }
 
+        window.showVirtualKeyboard = showVirtualKeyboard;
+        window.hideVirtualKeyboard = hideVirtualKeyboard;
+
         // 모달 외부 클릭 시 닫기
-        document.getElementById('virtual-keyboard-modal').addEventListener('click', function(e) {
+        document.getElementById('virtual-keyboard-modal').addEventListener('click', function (e) {
             if (e.target === this) {
                 hideVirtualKeyboard();
             }
         });
 
         // ESC 키로 모달 닫기
-        document.addEventListener('keydown', function(e) {
+        document.addEventListener('keydown', function (e) {
             if (e.key === 'Escape' && isVirtualKeyboardVisible) {
                 hideVirtualKeyboard();
             }
@@ -845,7 +880,7 @@
                 this.performanceInterval = null;
                 this.config = currentConfig;
                 this.authToken = sessionStorage.getItem('authToken');
-                
+
                 this.vmConfigs = {
                     'ubuntu-desktop': {
                         name: 'Ubuntu Desktop 20.04',
@@ -903,7 +938,7 @@
 
                 // VM 정보 업데이트
                 this.updateVMInfo(vmId);
-                
+
                 // 뷰어 제목 업데이트
                 document.getElementById('viewer-title').textContent = this.vmConfigs[vmId].name;
 
@@ -916,11 +951,11 @@
             updateVMInfo(vmId) {
                 const config = this.vmConfigs[vmId];
                 const vmInfo = document.getElementById('vm-info');
-                
+
                 document.getElementById('vm-memory').textContent = config.memory;
                 document.getElementById('vm-cpu').textContent = config.cpu;
                 document.getElementById('vm-disk').textContent = config.disk;
-                
+
                 vmInfo.style.display = 'block';
             }
 
@@ -938,18 +973,18 @@
                     this.isConnecting = true;
                     this.updateControlButtons();
                     this.setConnectionStatus('connecting', '연결 중...');
-                    
+
                     // 실제 VM 시작 시뮬레이션
                     await this.simulateVMStart();
-                    
+
                     // VNC 연결 시뮬레이션
                     await this.simulateVNCConnection();
-                    
+
                     this.setConnectionStatus('connected', '연결됨');
                     this.updateVMStatus('실행 중');
                     this.showVNCViewer();
                     this.startPerformanceMonitoring();
-                    
+
                 } catch (error) {
                     console.error('VM 시작 실패:', error);
                     this.setConnectionStatus('disconnected', '연결 실패');
@@ -987,16 +1022,16 @@
                 if (noConnection) {
                     noConnection.style.display = 'none';
                 }
-                
+
                 // 툴바 표시 (명시적으로)
                 toolbar.style.display = 'flex';
                 toolbar.classList.remove('hidden');
-                
+
                 // 캔버스 표시
                 if (canvas) {
                     canvas.style.display = 'block';
                 }
-                
+
                 // 실제 VNC 화면 시뮬레이션
                 container.innerHTML = `
                     <div style="width: 100%; height: 100%; background: linear-gradient(45deg, #1e3c72, #2a5298); 
@@ -1023,16 +1058,16 @@
                     this.disconnect();
                     this.isConnecting = false;
                     this.isRestarting = false;
-                    
+
                     // UI 상태 업데이트
                     this.setConnectionStatus('disconnected', '연결 안됨');
                     this.updateVMStatus('중지됨');
                     this.hideVNCViewer();
                     this.stopPerformanceMonitoring();
-                    
+
                     // 버튼 상태 업데이트 (중요!)
                     this.updateControlButtons();
-                    
+
                 } catch (error) {
                     console.error('VM 중지 실패:', error);
                 } finally {
@@ -1068,15 +1103,15 @@
 
                     // VM 재시작 시뮬레이션 (중지 + 시작)
                     await this.simulateVMRestart();
-                    
+
                     // VNC 재연결
                     await this.simulateVNCConnection();
-                    
+
                     this.setConnectionStatus('connected', '연결됨');
                     this.updateVMStatus('실행 중');
                     this.showVNCViewer();
                     this.startPerformanceMonitoring();
-                    
+
                 } catch (error) {
                     console.error('VM 재시작 실패:', error);
                     this.setConnectionStatus('disconnected', '재시작 실패');
@@ -1120,7 +1155,7 @@
             setConnectionStatus(status, text) {
                 const indicator = document.getElementById('status-indicator');
                 const connectionText = document.getElementById('connection-text');
-                
+
                 // 기존 클래스 제거
                 indicator.className = 'status-indicator';
                 // 새로운 상태 클래스 추가
@@ -1183,7 +1218,7 @@
                     clearInterval(this.performanceInterval);
                     this.performanceInterval = null;
                 }
-                
+
                 // 성능 통계 초기화
                 document.getElementById('cpu-usage').textContent = '0%';
                 document.getElementById('memory-usage').textContent = '0%';
@@ -1194,7 +1229,7 @@
                     // 실제로는 백엔드에서 성능 데이터를 가져옴
                     const cpuUsage = Math.floor(Math.random() * 60) + 20;
                     const memoryUsage = Math.floor(Math.random() * 40) + 30;
-                    
+
                     document.getElementById('cpu-usage').textContent = `${cpuUsage}%`;
                     document.getElementById('memory-usage').textContent = `${memoryUsage}%`;
                 }
@@ -1241,12 +1276,12 @@
         // 페이지 로드 완료 후 초기화
         document.addEventListener('DOMContentLoaded', () => {
             console.log('웹 기반 샌드박스 플랫폼이 초기화되었습니다.');
-            
+
             // 초기 버튼 상태 설정
             window.platform.updateControlButtons();
-            
+
             // 가상 키보드 관련 이벤트 리스너
-            document.addEventListener('keydown', function(e) {
+            document.addEventListener('keydown', function (e) {
                 // Ctrl+K로 가상 키보드 토글
                 if (e.ctrlKey && e.key === 'k') {
                     e.preventDefault();
@@ -1260,4 +1295,5 @@
         });
     </script>
 </body>
+
 </html>
